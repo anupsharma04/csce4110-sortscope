@@ -1,0 +1,1 @@
+Figure 2: Median runtime (ms, 5 trials, NullCounter) vs n on sorted input, linear axes. Missing points are configurations skipped by the benchmark caps (see CSV).

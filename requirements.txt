@@ -1,0 +1,10 @@
+# SortScope dependencies, pinned to the exact versions the committed results were produced
+# and tested with (Python 3.11+; developed on CPython 3.13). Upgrade deliberately: change a
+# version here, re-run `python -m pytest -q` and the benchmark, then commit both together.
+matplotlib==3.11.2      # figures + FuncAnimation
+pillow==13.0.0          # GIF export (matplotlib dependency, pinned because we rely on PillowWriter)
+numpy==2.5.4            # polyfit for log-log slopes
+pandas==3.1.1           # reading results.csv
+pytest==9.2.0           # test runner
+hypothesis==6.170.15    # property-based tests (tests/test_properties.py); test-only and optional:
+                        # without it that one file is skipped, everything else still runs
