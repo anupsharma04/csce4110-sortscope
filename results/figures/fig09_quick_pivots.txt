@@ -1,0 +1,1 @@
+Figure 9: Key comparisons of the three Quick Sort pivot rules at n = 5,000 (largest size where all were run). First-element pivot is Θ(n²) on sorted and reverse input; random and median-of-three stay near n log n everywhere. Hoare partitioning keeps all three efficient on many duplicates. Log scale.

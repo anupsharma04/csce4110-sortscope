@@ -1,0 +1,39 @@
+{
+  "python_version": "3.13.15",
+  "python_implementation": "CPython",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+  "cpu_count": 8,
+  "date_utc": "2026-11-11T18:24:38+00:00",
+  "trials": 5,
+  "seed": 4110,
+  "timer": "time.perf_counter, gc disabled, NullCounter",
+  "memory": "tracemalloc peak during sort (separate run)",
+  "algorithms": [
+    "bubble",
+    "insertion",
+    "merge",
+    "quick_first",
+    "quick_median3",
+    "quick_random",
+    "selection"
+  ],
+  "input_types": [
+    "many_duplicates",
+    "nearly_sorted",
+    "random",
+    "reverse",
+    "sorted"
+  ],
+  "sizes": [
+    100,
+    500,
+    1000,
+    2000,
+    5000,
+    10000,
+    50000,
+    100000
+  ],
+  "csv": "results.csv"
+}

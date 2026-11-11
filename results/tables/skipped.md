@@ -1,0 +1,55 @@
+### Skipped configurations
+
+| algorithm | input_type | n | reason |
+|---|---|---|---|
+| bubble | random | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | random | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | random | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | sorted | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | sorted | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | sorted | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | reverse | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | reverse | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | reverse | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | nearly_sorted | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | nearly_sorted | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | nearly_sorted | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | many_duplicates | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | many_duplicates | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| bubble | many_duplicates | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | random | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | random | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | random | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | sorted | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | sorted | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | sorted | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | reverse | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | reverse | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | reverse | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | nearly_sorted | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | nearly_sorted | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | nearly_sorted | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | many_duplicates | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | many_duplicates | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| selection | many_duplicates | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | random | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | random | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | random | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | sorted | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | sorted | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | sorted | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | reverse | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | reverse | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | reverse | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | nearly_sorted | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | nearly_sorted | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | nearly_sorted | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | many_duplicates | 10,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | many_duplicates | 50,000 | Θ(n²) algorithm capped at n <= 5000 |
+| insertion | many_duplicates | 100,000 | Θ(n²) algorithm capped at n <= 5000 |
+| quick_first | sorted | 10,000 | first-pivot worst case (Θ(n²)) on sorted capped at n <= 5000 |
+| quick_first | sorted | 50,000 | first-pivot worst case (Θ(n²)) on sorted capped at n <= 5000 |
+| quick_first | sorted | 100,000 | first-pivot worst case (Θ(n²)) on sorted capped at n <= 5000 |
+| quick_first | reverse | 10,000 | first-pivot worst case (Θ(n²)) on reverse capped at n <= 5000 |
+| quick_first | reverse | 50,000 | first-pivot worst case (Θ(n²)) on reverse capped at n <= 5000 |
+| quick_first | reverse | 100,000 | first-pivot worst case (Θ(n²)) on reverse capped at n <= 5000 |

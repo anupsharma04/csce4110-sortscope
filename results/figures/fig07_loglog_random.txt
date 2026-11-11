@@ -1,0 +1,1 @@
+Figure 7: Log–log runtime on random input. Slopes are numpy.polyfit fits of log t vs log n over n ≥ 500: ≈2 indicates Θ(n²), ≈1–1.15 indicates Θ(n log n) over this range.
