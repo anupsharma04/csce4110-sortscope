@@ -118,6 +118,27 @@ def test_csv_with_only_large_sizes_gets_one_runtime_panel(tmp_path) -> None:
     assert "(a)" not in caption and "(b)" not in caption
 
 
+def test_csv_text_cannot_break_a_markdown_table(tmp_path, good_csv) -> None:
+    # Security review: the `reason` text of a skipped row is copied from the CSV into
+    # tables/skipped.md. A "|" used to add a column and a line break used to end the table.
+    import csv
+
+    with good_csv.open(newline="", encoding="utf-8") as f:
+        columns = next(csv.reader(f))
+    p = tmp_path / "hostile.csv"
+    p.write_text(good_csv.read_text(encoding="utf-8"), encoding="utf-8")
+    with p.open("a", newline="", encoding="utf-8") as f:
+        csv.DictWriter(f, fieldnames=columns).writerow(
+            {"algorithm": "bubble", "input_type": "random", "n": 9000, "status": "skipped",
+             "reason": "a | b\n| injected | row |\r\nback\\|slash"})
+    paths = analyze(p, tmp_path / "out")
+    lines = (paths["tables"] / "skipped.md").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 5                               # heading, blank, header, separator, ONE data row
+    assert lines[4] == r"| bubble | random | 9,000 | a \| b \| injected \| row \| back\\\|slash |"
+    # every "|" that is not escaped is a real column border: 4 columns -> 5 borders
+    assert lines[4].replace("\\\\", "").replace("\\|", "").count("|") == 5
+
+
 def test_cli_prints_warning_to_stderr(tmp_path, good_csv, capsys) -> None:
     def bad_comparisons(line):
         f = line.split(",")

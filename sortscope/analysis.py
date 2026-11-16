@@ -235,20 +235,31 @@ def summary_table(ok: pd.DataFrame, slopes: pd.DataFrame, kind: str = "random") 
     return pd.DataFrame(rows), n
 
 
+def _md_cell(text: str) -> str:
+    """Make ``text`` safe to put in one Markdown table cell.
+
+    Cell text can come straight from the results CSV (e.g. the ``reason`` column), so it is
+    not trusted: a "|" would start a new column and a line break would end the table row.
+    Backslashes are doubled first so an existing "\\|" can't cancel the escape added here.
+    """
+    text = text.replace("\\", "\\\\").replace("|", "\\|")
+    return " ".join(text.splitlines())  # line breaks -> spaces; text without any is unchanged
+
+
 def to_markdown(df: pd.DataFrame, title: str, note: str = "") -> str:
     """Render a DataFrame as a Markdown table with a heading and an optional note."""
     cols = list(df.columns)
     lines = [f"### {title}", ""]
     if note:
         lines += [note, ""]
-    lines.append("| " + " | ".join(str(c) for c in cols) + " |")
+    lines.append("| " + " | ".join(_md_cell(str(c)) for c in cols) + " |")
     lines.append("|" + "|".join("---" for _ in cols) + "|")
     for _, r in df.iterrows():
         cells = []
         for c in cols:
             v = r[c]
             cells.append("—" if v is None or (isinstance(v, float) and math.isnan(v)) else
-                         (f"{v:,}" if isinstance(v, (int, np.integer)) else str(v)))
+                         (f"{v:,}" if isinstance(v, (int, np.integer)) else _md_cell(str(v))))
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines) + "\n"
 
