@@ -52,7 +52,7 @@ from sortscope.validation import (ALLOW_OUTSIDE_FLAG, BENCH_N, RESULTS_DIR, SEED
                                   int_arg, safe_console)
 
 BASE_SIZES = [100, 500, 1000, 2000, 5000]           # every algorithm
-LARGE_SIZES = [10_000, 50_000, 100_000]             # Merge and Quick only
+LARGE_SIZES = [10_000, 50_000, 100_000]             # Merge, Quick and Heap only (see skip_reason)
 FULL_SIZES = BASE_SIZES + LARGE_SIZES
 # Doubling chain with two sizes >= analysis.SLOPE_MIN_N, so the quick grid still
 # yields log-log slopes and doubling ratios.

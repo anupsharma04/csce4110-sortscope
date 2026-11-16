@@ -139,7 +139,7 @@ SortScope — CSCE 4110 (Big O Squad)
   4) Demo: Quick Sort first pivot vs median-of-three on sorted
   5) Sort my own list (counts and runtime for every algorithm)
   6) Benchmark — quick grid (seconds)
-  7) Benchmark — full grid (minutes)
+  7) Benchmark — full grid (about 10 minutes, interleaved timing)
   8) Plot results (figures + tables)
   9) Run tests
   0) Quit
@@ -210,7 +210,9 @@ def interactive_menu() -> int:
             elif choice == "6":
                 dispatch(parser.parse_args(["benchmark", "--quick"]))
             elif choice == "7":
-                dispatch(parser.parse_args(["benchmark"]))
+                # Same command as scripts/reproduce_all.*: interleaved timing, the mode used for the
+                # committed results (machine-speed drift is spread over all configurations).
+                dispatch(parser.parse_args(["benchmark", "--interleave"]))
             elif choice == "8":
                 dispatch(parser.parse_args(["plot"]))
             elif choice == "9":

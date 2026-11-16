@@ -14,6 +14,7 @@ def test_registry_has_proposal_algorithms() -> None:
     assert names() == [
         "bubble", "selection", "insertion", "merge",
         "quick_first", "quick_random", "quick_median3",
+        "heap",  # the proposal's stretch goal (sixth algorithm)
     ]
 
 

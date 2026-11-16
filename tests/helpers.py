@@ -119,5 +119,29 @@ def hoare_random_expected_comparisons(n: int) -> float:
     return e_prev
 
 
+def floor_lg(m: int) -> int:
+    return m.bit_length() - 1  # exact ⌊lg m⌋ for m >= 1, without floats
+
+
+def heap_height_sum(n: int) -> int:
+    """Sum of the heights of all nodes of an n-node binary heap, straight from the definition.
+
+    A node's height is the number of edges on the longest path down to a leaf; in an array
+    heap that path always follows left children (i -> 2i+1), so count those steps per node.
+    """
+    total = 0
+    for i in range(n):
+        j = i
+        while 2 * j + 1 < n:
+            j = 2 * j + 1
+            total += 1
+    return total
+
+
+def heap_comparisons_upper_bound(n: int) -> int:
+    """2·(sum of heights) for the build + 2·⌊lg m⌋ for the sift-down in each heap of size m = 1..n-1."""
+    return 2 * heap_height_sum(n) + 2 * sum(floor_lg(m) for m in range(1, n))
+
+
 def two_n_ln_n(n: int) -> float:
     return 2 * n * math.log(n)

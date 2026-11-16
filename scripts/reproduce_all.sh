@@ -11,8 +11,8 @@ PY="${PYTHON:-python}"
 echo "== 1/4 tests"
 "$PY" -m pytest -q
 
-echo "== 2/4 full benchmark (5 trials, seed 4110)"
-"$PY" -m sortscope benchmark
+echo "== 2/4 full benchmark (5 trials, seed 4110, interleaved)"
+"$PY" -m sortscope benchmark --interleave
 
 echo "== 3/4 figures and tables"
 "$PY" -m sortscope plot

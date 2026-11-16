@@ -32,6 +32,7 @@ import random
 from typing import Callable, Iterator
 
 from sortscope.steps.bubble import bubble_steps
+from sortscope.steps.heap import heap_steps
 from sortscope.steps.insertion import insertion_steps
 from sortscope.steps.merge import merge_steps
 from sortscope.steps.quick import Event, quick_steps
@@ -55,6 +56,7 @@ _STEPS: dict[str, Callable[[int], StepsFn]] = {
     "quick_first": _quick("first"),
     "quick_random": _quick("random"),
     "quick_median3": _quick("median3"),
+    "heap": lambda seed: heap_steps,
 }
 
 
@@ -73,5 +75,5 @@ def get_steps(name: str, seed: int = 0) -> StepsFn:
 
 __all__ = [
     "Event", "StepsFn", "get_steps", "step_names",
-    "bubble_steps", "insertion_steps", "merge_steps", "quick_steps", "selection_steps",
+    "bubble_steps", "heap_steps", "insertion_steps", "merge_steps", "quick_steps", "selection_steps",
 ]

@@ -2,7 +2,7 @@
 
 Reads ``results/results.csv`` (written by ``benchmark.py``) and writes
 * ``results/figures/figNN_*.png`` + ``figNN_*.txt`` (numbered caption) and ``captions.md``
-* ``results/tables/*.md`` (drop straight into the report)
+* ``results/tables/*.md`` (drop straight into the report; ``summary.md`` is the one-page summary table)
 
     python -m sortscope plot                       # uses results/results.csv
     python -m sortscope plot --csv results/scratch/results_quick.csv --out results/scratch
@@ -16,6 +16,9 @@ Method notes (also in the captions):
   for Θ(n log n); ≈ 2 for Θ(n).
 * Normalized time t/n² or t/(n lg n) flattens to the hidden constant when the
   model is right.
+* Expected-growth lines on the log-log figures: pure c·n², c·n lg n and c·n curves,
+  placed a constant factor above/below the measured curves of that class so they can
+  be compared by eye (parallel = same growth rate).
 """
 
 from __future__ import annotations
@@ -32,13 +35,19 @@ from sortscope.registry import QUADRATIC, QUICK_VARIANTS, get_info, names
 from sortscope.validation import ALLOW_OUTSIDE_FLAG, RESULTS_DIR, check_output_path, safe_console
 
 SLOPE_MIN_N = 500
+# The runtime-vs-n figures get a second panel when sizes go beyond this, because the Θ(n²)
+# sorts stop here (the proposal's size cap): on one linear axis up to 100,000 every
+# small-n point would sit in the bottom-left corner.
+LINEAR_ZOOM_N = 5000
 
 # Categorical palette (dataviz reference, light mode), assigned to algorithms in a
 # fixed order so an algorithm has the same color in every figure.
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
 ALGO_COLOR = {name: SERIES[i] for i, name in enumerate(names())}
 MARKERS = {"bubble": "o", "selection": "s", "insertion": "^", "merge": "D",
-           "quick_first": "v", "quick_random": "P", "quick_median3": "X"}
+           "quick_first": "v", "quick_random": "P", "quick_median3": "X", "heap": "*"}
+# Input types get their own marker shapes too (Figure 10), so they never rely on color alone.
+KIND_MARKERS = {"random": "o", "sorted": "s", "reverse": "^", "nearly_sorted": "D", "many_duplicates": "v"}
 SURFACE, INK, INK2, MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#898781", "#e1e0d9"
 KIND_LABEL = {"random": "random", "sorted": "sorted", "reverse": "reverse",
               "nearly_sorted": "nearly sorted", "many_duplicates": "many duplicates"}
@@ -59,6 +68,15 @@ def theory_merge_worst(n: np.ndarray) -> np.ndarray:
     """Merge Sort's exact worst-case comparisons: n⌈lg n⌉ - 2^⌈lg n⌉ + 1."""
     k = np.ceil(np.log2(n))
     return n * k - 2**k + 1
+
+
+# Each expected growth class: its shape g(n), legend text and line style on the log-log figures
+# (the constant in front of g(n) is set from the data, see fig_loglog).
+GROWTH = {
+    "n²": (lambda n: n**2, "∝ n²", "--"),
+    "n log n": (theory_n_lg_n, "∝ n lg n", ":"),
+    "n": (lambda n: n, "∝ n", "-."),
+}
 
 
 def theory_2n_ln_n(n: np.ndarray) -> np.ndarray:
@@ -189,6 +207,34 @@ def doubling_table(ok: pd.DataFrame, kind: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def summary_table(ok: pd.DataFrame, slopes: pd.DataFrame, kind: str = "random") -> tuple[pd.DataFrame, int | None]:
+    """One row per algorithm on ``kind`` input: expected class, fitted slope, doubling ratio and the
+    measurements at the largest n where every algorithm in the CSV ran. Returns (table, that n)."""
+    data = ok[ok.input_type == kind]
+    algos = [a for a in names() if (data.algorithm == a).any()]
+    common = [int(n) for n in sorted(data.n.unique())
+              if all(((data.algorithm == a) & (data.n == n)).any() for a in algos)]
+    if not common:
+        return pd.DataFrame(), None
+    n = common[-1]
+    # Largest doubling step (m -> 2m) that every algorithm has, so the ratios are comparable.
+    pair = next(((m, 2 * m) for m in reversed(common) if 2 * m in common), None)
+    slope = slopes.set_index("algorithm")[kind]
+    rows = []
+    for algo in algos:
+        info, sub = get_info(algo), data[data.algorithm == algo].set_index("n")
+        r = sub.loc[n]
+        row = {"algorithm": info.label, "expected": expected_class(algo, kind),
+               "slope": "—" if slope[algo] is None or pd.isna(slope[algo]) else f"{slope[algo]:.2f}"}
+        if pair:
+            row[f"T({pair[1]})/T({pair[0]})"] = f"{sub.ms[pair[1]] / sub.ms[pair[0]]:.2f}"
+        row.update({"median ms": round(float(r.ms), 3), "comparisons": int(r.comparisons), "swaps": int(r.swaps),
+                    "writes": int(r.writes), "peak KB": round(float(r.peak_kb), 3), "max depth": int(r.max_depth),
+                    "stable": "yes" if info.stable else "no"})
+        rows.append(row)
+    return pd.DataFrame(rows), n
+
+
 def to_markdown(df: pd.DataFrame, title: str, note: str = "") -> str:
     """Render a DataFrame as a Markdown table with a heading and an optional note."""
     cols = list(df.columns)
@@ -274,17 +320,36 @@ def _legend(ax, **kw) -> None:
 def fig_runtime_per_kind(ok: pd.DataFrame, fw: FigureWriter) -> None:
     """Figures 1-5: median runtime vs n (linear axes), one figure per input type."""
     for kind in input_kinds():
-        fig, (ax,) = _new_fig(width=7.2)
+        data = ok[ok.input_type == kind]
+        # Two panels when the data goes past LINEAR_ZOOM_N: (a) every algorithm up to that size,
+        # (b) the full range for the algorithms that were measured beyond it. Both linear.
+        # A CSV whose sizes are all above LINEAR_ZOOM_N has nothing to zoom in on: one panel.
+        small = data[data.n <= LINEAR_ZOOM_N]
+        large = [a for a in names() if (data[data.algorithm == a].n > LINEAR_ZOOM_N).any()] if len(small) else []
+        fig, axes = _new_fig(2 if large else 1, width=5.8 if large else 7.2)
+        ax = axes[0]
+        shown = small if large else data
         for algo in names():
-            sub = ok[(ok.algorithm == algo) & (ok.input_type == kind)].sort_values("n")
+            sub = shown[shown.algorithm == algo].sort_values("n")
             if len(sub):
                 _series(ax, sub.n, sub.ms, algo)
-        _style(ax, f"Runtime vs n — {KIND_LABEL[kind]} input", "n (number of elements)", "median runtime (ms)")
+        title = f"Runtime vs n — {KIND_LABEL[kind]} input"
+        _style(ax, f"(a) {title}, n ≤ {LINEAR_ZOOM_N:,}" if large else title,
+               "n (number of elements)", "median runtime (ms)")
         _legend(ax, loc="upper left")
+        if large:
+            ax = axes[1]
+            for algo in large:
+                sub = data[data.algorithm == algo].sort_values("n")
+                _series(ax, sub.n, sub.ms, algo)
+            _style(ax, "(b) all sizes — sorts measured beyond that", "n (number of elements)", "median runtime (ms)")
+            _legend(ax, loc="upper left")
         fig.tight_layout()
         fw.save(fig, f"runtime_{kind}",
                 f"Median runtime (ms, {_trials(ok)} trials, NullCounter) vs n on {KIND_LABEL[kind]} input, "
-                f"linear axes. Missing points are configurations skipped by the benchmark caps (see CSV).")
+                f"linear axes." + (f" (a) every algorithm up to n = {LINEAR_ZOOM_N:,}; (b) the full size range for "
+                                   f"the sorts measured beyond it. Configurations above the benchmark caps were "
+                                   f"skipped (see the CSV and skipped.md)." if large else ""))
 
 
 def _trials(ok: pd.DataFrame) -> int:
@@ -296,17 +361,22 @@ def fig_comparisons_vs_theory(ok: pd.DataFrame, fw: FigureWriter) -> None:
     rnd = ok[ok.input_type == "random"]
     fig, axes = _new_fig(3, width=5.0)
 
-    def measured(ax, algo):
-        """Plot the measured comparisons of one algorithm as markers; return the n values used."""
+    def measured(ax, algo, ring: bool = False):
+        """Plot the measured comparisons of one algorithm as markers; return the n values used.
+
+        ``ring=True`` draws a larger hollow marker, for a series whose points coincide with
+        another's (Bubble and Selection on random input), so both stay visible.
+        """
         sub = rnd[rnd.algorithm == algo].sort_values("n")
         if len(sub):
-            ax.plot(sub.n, sub.comparisons, color=ALGO_COLOR[algo], marker=MARKERS[algo], markersize=6,
-                    linestyle="none", label=f"{get_info(algo).label} (measured)")
+            shape = dict(markersize=12, markerfacecolor="none", markeredgewidth=1.8) if ring else dict(markersize=6)
+            ax.plot(sub.n, sub.comparisons, color=ALGO_COLOR[algo], marker=MARKERS[algo],
+                    linestyle="none", label=f"{get_info(algo).label} (measured)", **shape)
         return sub.n.to_numpy(float)
 
     # (a) quadratic sorts
     ax = axes[0]
-    ns = np.concatenate([measured(ax, a) for a in QUADRATIC] + [np.array([2.0])])
+    ns = np.concatenate([measured(ax, a, ring=(a == "bubble")) for a in QUADRATIC] + [np.array([2.0])])
     grid = np.linspace(max(ns.min(), 2), ns.max(), 200)
     ax.plot(grid, theory_n_choose_2(grid), color=INK2, linestyle="--", linewidth=1.2, label="n(n−1)/2")
     ax.plot(grid, theory_n_choose_2(grid) / 2, color=MUTED, linestyle=":", linewidth=1.2,
@@ -341,8 +411,8 @@ def fig_comparisons_vs_theory(ok: pd.DataFrame, fw: FigureWriter) -> None:
     fig.tight_layout()
     fw.save(fig, "comparisons_vs_theory",
             "Measured key comparisons on random input (markers) against theory (lines). "
-            "(a) Selection equals n(n−1)/2 exactly; Bubble's points sit under Selection's (on random input the "
-            "early exit almost never fires, so it also makes ≈ n(n−1)/2 comparisons); Insertion tracks the "
+            "(a) Selection equals n(n−1)/2 exactly; Bubble's points (rings) coincide with Selection's (on random "
+            "input the early exit almost never fires, so it also makes ≈ n(n−1)/2 comparisons); Insertion tracks the "
             "inversion count ≈ n(n−1)/4. (b) Merge stays below its exact worst-case bound and close to n lg n. "
             "(c) Random-pivot Quick: the exact expectation for our partition (m+2 comparisons per partition, "
             "m+1 when the pivot is the minimum) vs the leading term 2n ln n; the gap is the +Θ(n) term. "
@@ -350,24 +420,47 @@ def fig_comparisons_vs_theory(ok: pd.DataFrame, fw: FigureWriter) -> None:
 
 
 def fig_loglog(ok: pd.DataFrame, slopes: pd.DataFrame, fw: FigureWriter, kind: str = "random") -> None:
-    """Figure 7: log-log runtime with fitted slopes in the legend."""
-    fig, (ax,) = _new_fig(width=7.2)
+    """Log-log runtime with fitted slopes in the legend and expected-growth lines (Figures 7 and 11)."""
+    fig, (ax,) = _new_fig(width=8.6, height=5.0)
+    data = ok[ok.input_type == kind]
     for algo in names():
-        sub = ok[(ok.algorithm == algo) & (ok.input_type == kind)].sort_values("n")
+        sub = data[data.algorithm == algo].sort_values("n")
         if len(sub) == 0:
             continue
         b = slopes.set_index("algorithm").loc[algo, kind]
         label = f"{get_info(algo).label}  (slope {b:.2f})" if b is not None and not pd.isna(b) else get_info(algo).label
         _series(ax, sub.n, sub.ms, algo, label=label)
+    # Expected-growth lines: one pure c·g(n) curve per growth class present. The constant c puts
+    # the n² line a fixed factor above the slowest curve of its class (and the other lines the same
+    # factor below the fastest curve of theirs) at the largest measured n, so a line never hides
+    # data and "measured curve parallel to the line" can be judged by eye.
+    gap = 2.2
+    lines_drawn = False
+    for cls, (shape, text, style) in GROWTH.items():
+        # isin (a boolean Series), not a plain list of booleans: for a CSV with no rows of this
+        # input type the list would be [], and data[[]] selects zero *columns* instead of zero rows.
+        members = data[data.algorithm.isin([a for a in names() if expected_class(a, kind) == cls])]
+        if members.n.nunique() < 2:
+            continue
+        n_hi = members.n.max()
+        at_hi = members[members.n == n_hi].ms
+        anchor = at_hi.max() * gap if cls == "n²" else at_hi.min() / gap
+        grid = np.geomspace(max(members.n.min(), 2), n_hi, 50)
+        ax.plot(grid, anchor * shape(grid) / shape(float(n_hi)), color=INK2, linestyle=style,
+                linewidth=1.2, label=f"{text}  (expected growth)")
+        lines_drawn = True
     ax.set_xscale("log")
     ax.set_yscale("log")
     _style(ax, f"Runtime vs n, log–log — {KIND_LABEL[kind]} input", "n (log scale)", "median runtime (ms, log scale)")
     ax.grid(True, which="minor", color=GRID, linewidth=0.3)
-    _legend(ax, loc="upper left")
+    _legend(ax, loc="center left", bbox_to_anchor=(1.01, 0.5))   # outside the plot: never covers a curve
     fig.tight_layout()
     fw.save(fig, f"loglog_{kind}",
             f"Log–log runtime on {KIND_LABEL[kind]} input. Slopes are numpy.polyfit fits of log t vs log n over "
-            f"n ≥ {SLOPE_MIN_N}: ≈2 indicates Θ(n²), ≈1–1.15 indicates Θ(n log n) over this range.")
+            f"n ≥ {SLOPE_MIN_N}: ≈2 indicates Θ(n²), ≈1–1.15 indicates Θ(n log n) over this range, ≈1 indicates "
+            f"Θ(n)." + (" Gray lines show the expected growth of each class present (c·n², c·n lg n, c·n), offset "
+                        "from the data by a constant factor; a measured curve of that class should run parallel "
+                        "to its line." if lines_drawn else ""))
 
 
 def fig_normalized(ok: pd.DataFrame, fw: FigureWriter, kind: str = "random") -> None:
@@ -375,15 +468,20 @@ def fig_normalized(ok: pd.DataFrame, fw: FigureWriter, kind: str = "random") -> 
     fig, axes = _new_fig(2, width=5.6)
     sub = ok[ok.input_type == kind]
     ax = axes[0]
+    # How far each quadratic curve is from flat: (t/n² at the largest n) / (t/n² at the smallest n).
+    drift = []
     for algo in QUADRATIC:
         s = sub[sub.algorithm == algo].sort_values("n")
         _series(ax, s.n, s.ms * 1e6 / s.n.astype(float) ** 2, algo)
+        c = (s.ms / s.n.astype(float) ** 2).to_numpy()
+        if len(c) >= 2 and c[0] > 0:
+            drift.append(c[-1] / c[0])
     _style(ax, "(a) t / n² — quadratic sorts", "n (log scale)", "ns per n²")
     ax.set_xscale("log")
     ax.set_ylim(bottom=0)
     _legend(ax)
     ax = axes[1]
-    for algo in ("merge", *QUICK_VARIANTS):
+    for algo in [a for a in names() if a not in QUADRATIC]:
         s = sub[sub.algorithm == algo].sort_values("n")
         n = s.n.astype(float)
         _series(ax, s.n, s.ms * 1e6 / (n * np.log2(n)), algo)
@@ -392,12 +490,20 @@ def fig_normalized(ok: pd.DataFrame, fw: FigureWriter, kind: str = "random") -> 
     ax.set_ylim(bottom=0)
     _legend(ax)
     fig.tight_layout()
+    if not drift:
+        part_a = ""
+    elif max(drift) <= 1.25 and min(drift) >= 0.8:
+        # Only the two ends of each curve are compared, so the caption claims no more than that.
+        part_a = " (a) flattens: the cost per n² at the largest n is within 25% of its value at the smallest n."
+    else:
+        part_a = (f" (a) is not perfectly flat: the cost per n² changes by {min(drift):.2f}×–{max(drift):.2f}× from "
+                  f"the smallest to the largest n although the comparison counts are exactly quadratic (see the "
+                  f"slopes of comparisons) — a change in cost per operation on this machine, not extra work.")
     fw.save(fig, f"normalized_{kind}",
             f"Normalized runtime on {KIND_LABEL[kind]} input. A curve that flattens means the growth model is right; "
-            f"its height is the hidden constant (ns per basic step). (a) does NOT flatten: cost per comparison grows "
-            f"≈1.7× from n=100 to 5000 although the operation counts are exactly quadratic (see slopes of "
-            f"comparisons) — a per-operation cost effect of the machine, not extra work. (b) random-pivot Quick "
-            f"falls with n because its Θ(n) random-number calls (one per partition) shrink relative to n lg n.")
+            f"its height is the hidden constant (ns per basic step).{part_a} (b) A curve that falls at small n is "
+            f"fixed per-call overhead shrinking relative to n lg n (for random-pivot Quick: one random-number call "
+            f"per partition, Θ(n) in total).")
 
 
 def quick_pivot_table(ok: pd.DataFrame) -> tuple[pd.DataFrame, int | None]:
@@ -428,21 +534,30 @@ def _short(v: float) -> str:
 
 
 def fig_quick_pivots(table: pd.DataFrame, n: int | None, fw: FigureWriter) -> None:
-    """Figure 9: grouped bars of Quick Sort comparisons per pivot rule (log scale)."""
+    """Figure 9: Quick Sort comparisons per pivot rule and input type (dots on a log scale).
+
+    Dots, not bars: a log axis has no zero, so the length of a bar on it would mean nothing.
+    """
     if n is None:
         return
     kinds = list(dict.fromkeys(table.input))
     fig, (ax,) = _new_fig(width=7.6)
-    width = 0.26
+    step = 0.24
     x = np.arange(len(kinds))
     for i, algo in enumerate(QUICK_VARIANTS):
         vals = [table[(table.algorithm == algo) & (table.input == k)].comparisons.iloc[0] for k in kinds]
-        bars = ax.bar(x + (i - 1) * width, vals, width=width * 0.92, color=ALGO_COLOR[algo],
-                      label=get_info(algo).label)
-        ax.bar_label(bars, labels=[_short(v) for v in vals], fontsize=7, color=INK2, padding=2)
+        xs = x + (i - 1) * step
+        ax.plot(xs, vals, linestyle="none", marker=MARKERS[algo], markersize=9, color=ALGO_COLOR[algo],
+                label=get_info(algo).label)
+        for xi, v in zip(xs, vals):
+            ax.annotate(_short(v), (xi, v), textcoords="offset points", xytext=(0, 8), ha="center",
+                        fontsize=7.5, color=INK2)
     ax.set_yscale("log")
     ax.set_xticks(x, [KIND_LABEL[k] for k in kinds])
+    ax.set_xlim(-0.6, len(kinds) - 0.4)
+    ax.set_ylim(table.comparisons.min() / 2, table.comparisons.max() * 3)   # room for the labels on top
     _style(ax, f"Quick Sort pivot rules — comparisons at n = {n:,}", "input type", "key comparisons (log scale)")
+    ax.grid(False, axis="x")                         # categories need no vertical grid lines
     _legend(ax, loc="upper right")
     fig.tight_layout()
     fw.save(fig, "quick_pivots",
@@ -473,8 +588,11 @@ def fig_insertion_inversions(inv: pd.DataFrame, fw: FigureWriter) -> None:
     for kind in input_kinds():
         s = pos[pos.input == kind]
         if len(s):
-            ax.plot(s.inversions, s.shifts, linestyle="none", marker="o", markersize=6,
-                    color=kind_colors[kind], label=KIND_LABEL[kind])
+            # Hollow markers with a different shape per input type: points that land on the
+            # same spot (random and many-duplicates inputs of equal n) stay visible, and the
+            # input type is readable without relying on color.
+            ax.plot(s.inversions, s.shifts, linestyle="none", marker=KIND_MARKERS[kind], markersize=9,
+                    markerfacecolor="none", markeredgewidth=1.8, color=kind_colors[kind], label=KIND_LABEL[kind])
     lim = [max(1, pos.inversions.min()) / 1.5, pos.inversions.max() * 1.5]
     ax.plot(lim, lim, color=INK2, linestyle="--", linewidth=1.2, label="y = x")
     ax.set_xscale("log")
@@ -485,7 +603,8 @@ def fig_insertion_inversions(inv: pd.DataFrame, fw: FigureWriter) -> None:
     fig.tight_layout()
     fw.save(fig, "insertion_inversions",
             "Insertion Sort element shifts vs the input's inversion count (computed independently with a "
-            "Fenwick tree) for every measured configuration. All points lie on y = x: each shift removes exactly "
+            "Fenwick tree) for every measured configuration (marker shape = input type). All points lie on y = x: "
+            "each shift removes exactly "
             "one inversion. Our Insertion Sort shifts rather than swaps, so swaps are 0 and shifts are the "
             "writes minus the n−1 key placements. Sorted inputs (0 inversions, 0 shifts) cannot appear on log axes.")
 
@@ -524,9 +643,18 @@ def _analyze(csv_path: Path, out_root: Path) -> dict[str, Path]:
     fig_quick_pivots(qtable, qn, fw)
     inv = insertion_inversions(ok)
     fig_insertion_inversions(inv, fw)
+    # Sorted input shows three growth classes at once: Θ(n) (Bubble, Insertion), Θ(n log n), Θ(n²).
+    fig_loglog(ok, slopes, fw, "sorted")
     fw.write_index()
+    summary, sn = summary_table(ok, slopes)
 
     tables = {
+        "summary.md": to_markdown(
+            summary, f"Summary — random input, measurements at n = {sn:,}",
+            f"One row per algorithm. expected = growth class on random input; slope = log–log fit of runtime over "
+            f"n ≥ {SLOPE_MIN_N}; T(2m)/T(m) = doubling ratio (≈4 for n², slightly above 2 for n log n); the "
+            f"remaining columns are the median runtime, exact operation counts, tracemalloc peak and recursion "
+            f"depth at n = {sn:,}, the largest size every algorithm ran.") if sn else "",
         "slopes.md": to_markdown(slopes_report_table(slopes), "Log–log slopes of runtime",
                                  f"numpy.polyfit(log n, log t, 1) over measured sizes n ≥ {SLOPE_MIN_N}. "
                                  "In parentheses: the growth class expected for that algorithm on that input "
@@ -564,7 +692,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    """`sortscope plot`: validate paths, build every figure and table, print the slope table."""
+    """`sortscope plot`: validate paths, build every figure and table, print the summary and slope tables."""
     try:
         out = check_output_path(args.out, allow_outside=args.allow_outside_results)
         paths = analyze(args.csv, out)
@@ -573,7 +701,8 @@ def run(args: argparse.Namespace) -> int:
     except OSError as e:  # e.g. read-only output folder
         raise SystemExit(f"error: cannot write figures/tables under {args.out}: {e.strerror or e}") from None
     print(f"figures -> {paths['figures']}\ntables  -> {paths['tables']}")
-    print((paths["tables"] / "slopes.md").read_text(encoding="utf-8"))
+    for name in ("summary.md", "slopes.md"):
+        print((paths["tables"] / name).read_text(encoding="utf-8"))
     return 0
 
 

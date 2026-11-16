@@ -97,6 +97,27 @@ def test_unknown_status_is_reported(tmp_path, good_csv) -> None:
     assert len(warnings) == 1 and "unknown status" in warnings[0] and "line(s) [5]" in warnings[0]
 
 
+@pytest.mark.parametrize("kinds", [["random"], ["sorted"]])
+def test_csv_with_one_input_type_still_plots(tmp_path, kinds) -> None:
+    # README "Custom benchmark" then "Plot a scratch run": the log-log figures (random and sorted)
+    # used to crash with AttributeError when the CSV had no rows of their input type.
+    csv = tmp_path / "partial.csv"
+    run_benchmark(build_grid(["merge", "heap"], kinds, [250, 500, 1000]), trials=1, seed=1, out=csv, verbose=False)
+    paths = analyze(csv, tmp_path / "out")
+    captions = (paths["figures"] / "captions.md").read_text(encoding="utf-8")
+    assert "loglog_random" in captions and "loglog_sorted" in captions
+    assert captions.count("Gray lines show the expected growth") == 1   # only the figure that has data
+
+
+def test_csv_with_only_large_sizes_gets_one_runtime_panel(tmp_path) -> None:
+    # Every size is above LINEAR_ZOOM_N: there is no "n ≤ 5,000" panel to draw, so no (a)/(b) split.
+    csv = tmp_path / "large.csv"
+    run_benchmark(build_grid(["merge", "heap"], ["random"], [6000, 12000]), trials=1, seed=1, out=csv, verbose=False)
+    paths = analyze(csv, tmp_path / "out")
+    caption = (paths["figures"] / "fig01_runtime_random.txt").read_text(encoding="utf-8")
+    assert "(a)" not in caption and "(b)" not in caption
+
+
 def test_cli_prints_warning_to_stderr(tmp_path, good_csv, capsys) -> None:
     def bad_comparisons(line):
         f = line.split(",")

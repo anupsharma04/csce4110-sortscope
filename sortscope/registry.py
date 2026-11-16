@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Callable
 
-from sortscope.algorithms import bubble_sort, insertion_sort, merge_sort, quick_sort, selection_sort
+from sortscope.algorithms import (bubble_sort, heap_sort, insertion_sort, merge_sort, quick_sort,
+                                  selection_sort)
 from sortscope.counter import OpCounter
 
 SortFn = Callable[[list, OpCounter], None]
@@ -56,6 +57,8 @@ ALGORITHMS: dict[str, SortInfo] = {
         SortInfo("quick_first", "Quick (first pivot)", "n log n", "n log n", "n^2", "log n", False, _quick("first")),
         SortInfo("quick_random", "Quick (random pivot)", "n log n", "n log n", "n^2", "log n", False, _quick("random")),
         SortInfo("quick_median3", "Quick (median-of-3)", "n log n", "n log n", "n^2", "log n", False, _quick("median3")),
+        # Stretch goal from the proposal. Best case is for distinct keys; all-equal input is Θ(n).
+        SortInfo("heap", "Heap", "n log n", "n log n", "n log n", "1", False, _fixed(heap_sort)),
     ]
 }
 

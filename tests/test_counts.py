@@ -16,6 +16,9 @@ import pytest
 from helpers import (
     brute_inversions,
     count_inversions,
+    floor_lg,
+    heap_comparisons_upper_bound,
+    heap_height_sum,
     hoare_random_expected_comparisons,
     merge_worst_case_input,
     merge_worst_comparisons_closed_form,
@@ -25,6 +28,7 @@ from helpers import (
     two_n_ln_n,
 )
 
+from sortscope.algorithms.heap import _build_max_heap
 from sortscope.algorithms.quick import _choose_first, _hoare_partition
 from sortscope.counter import OpCounter
 from sortscope.inputs import generate, input_kinds
@@ -323,3 +327,74 @@ def test_expected_recurrence_small_cases_by_enumeration() -> None:
 
     for m in range(0, 9):
         assert hoare_random_expected_comparisons(m) == pytest.approx(exact_avg(m))
+
+
+# ---------------------------------------------------------------------------
+# Heap Sort (stretch goal)
+#
+# Sift-down from a node of height h: per level one comparison picks the larger
+# child (none if there is a single child) and one compares parent with that
+# child, then at most one swap. So <= 2h comparisons and <= h swaps.
+#
+# Build (bottom-up): every internal node is sifted once, so the build costs at
+# most 2·H(n) comparisons and H(n) swaps, H(n) = sum of all node heights.
+# Claim: H(n) = n − popcount(n). Proof: node i has height >= k exactly when its
+# leftmost descendant k levels down exists; that descendant has index
+# (i+1)·2^k − 1, which is < n iff i+1 <= n/2^k. So ⌊n/2^k⌋ nodes have height
+# >= k, and H(n) = Σ_{k>=1} ⌊n/2^k⌋ = n − popcount(n) (Legendre's formula for
+# the power of 2 dividing n!). Hence the build is Θ(n): fewer than 2n
+# comparisons, although it performs ⌊n/2⌋ sift-downs.
+#
+# Extraction: n−1 root swaps (always performed), each followed by a sift-down
+# from the root of a heap of m = n−1, ..., 1 elements, whose height is ⌊lg m⌋.
+#     comparisons <= 2·H(n) + 2·Σ_{m=1}^{n−1} ⌊lg m⌋        (≈ 2n lg n)
+#     swaps       <= H(n) + (n−1) + Σ_{m=1}^{n−1} ⌊lg m⌋,  swaps >= n−1
+# Heap Sort never calls counter.write directly, so writes = 2·swaps, and it is
+# iterative, so max_depth stays 0.
+#
+# All keys equal: no comparison is ever true, so every sift-down stops at its
+# first level. Build: each of the ⌊n/2⌋ internal nodes costs 2 comparisons,
+# except the one node with a single child when n is even (1 comparison):
+# 2⌊n/2⌋ − [n even] = n − 1, and 0 swaps. Extraction: the heap of size m costs
+# 2 comparisons if m >= 3, 1 if m = 2, 0 if m = 1: 2(n−3) + 1 = 2n − 5 (n >= 3).
+#     C_equal(n) = 3n − 6 for n >= 3 (1 for n = 2), swaps = n − 1.
+# So Heap Sort's Θ(n log n) best case needs distinct keys; equal keys are Θ(n).
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("n", list(range(0, 200)) + [1000, 4096, 5000])
+def test_heap_height_sum_closed_form(n: int) -> None:
+    assert heap_height_sum(n) == n - n.bit_count()
+
+
+def test_heap_build_is_linear_for_every_input() -> None:
+    for arr in CASES:
+        n, a, c = len(arr), list(arr), OpCounter()
+        _build_max_heap(a, c)
+        assert all(not a[(i - 1) // 2] < a[i] for i in range(1, n))  # max-heap order holds
+        assert c.comparisons <= 2 * heap_height_sum(n)               # < 2n
+        assert c.swaps <= heap_height_sum(n)
+
+
+def test_heap_counts_bounded_for_every_input() -> None:
+    for arr in CASES:
+        n = len(arr)
+        c = run("heap", arr)
+        root_sifts = sum(floor_lg(m) for m in range(1, n))
+        assert c.comparisons <= heap_comparisons_upper_bound(n)
+        assert max(n - 1, 0) <= c.swaps <= heap_height_sum(n) + max(n - 1, 0) + root_sifts
+        assert c.writes == 2 * c.swaps
+        assert c.max_depth == 0
+
+
+@pytest.mark.parametrize("n", list(range(0, 100)) + [1000, 4096])
+def test_heap_on_all_equal_is_linear(n: int) -> None:
+    c = run("heap", [7] * n)
+    assert c.comparisons == (3 * n - 6 if n >= 3 else 1 if n == 2 else 0)
+    assert c.swaps == max(n - 1, 0)
+
+
+@pytest.mark.parametrize("n", [1000, 5000, 20_000])
+def test_heap_random_comparisons_are_about_2n_lg_n(n: int) -> None:
+    # On random distinct keys most sift-downs go (almost) to the bottom, so the count sits just
+    # under the bound: between n lg n and 2n lg n.
+    c = run("heap", generate("random", n, seed=1))
+    assert n * math.log2(n) < c.comparisons <= heap_comparisons_upper_bound(n) < 2 * n * math.log2(n)

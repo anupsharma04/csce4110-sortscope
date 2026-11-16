@@ -123,12 +123,18 @@ def test_fit_slope_recovers_power_law() -> None:
 
 def test_analysis_end_to_end(tmp_path) -> None:
     csv_path = tmp_path / "results.csv"
-    grid = build_grid(["insertion", "merge", "quick_first", "quick_random", "quick_median3"],
+    grid = build_grid(["insertion", "merge", "quick_first", "quick_random", "quick_median3", "heap"],
                       ["random", "sorted", "reverse", "nearly_sorted", "many_duplicates"], [250, 500, 1000])
     run_benchmark(grid, trials=1, seed=1, out=csv_path, verbose=False)
     paths = analyze(csv_path, tmp_path)
     figs = sorted(p.name for p in paths["figures"].glob("*.png"))
-    assert len(figs) == 10
+    assert len(figs) == 11           # 5 runtime, comparisons, log-log, normalized, pivots, inversions, log-log sorted
+    assert figs[6] == "fig07_loglog_random.png" and figs[10] == "fig11_loglog_sorted.png"
+    captions = (paths["figures"] / "captions.md").read_text(encoding="utf-8")
+    assert "expected growth" in captions                       # the proposal's expected-growth lines (M5)
+    summary = (paths["tables"] / "summary.md").read_text(encoding="utf-8")  # the proposal's summary table (M5)
+    assert "n = 1,000" in summary and "T(1000)/T(500)" in summary
+    assert all(f"| {label} |" in summary for label in ("Insertion", "Merge", "Quick (first pivot)", "Heap"))
     assert all((paths["figures"] / f.replace(".png", ".txt")).exists() for f in figs)
     assert "Figure 1:" in (paths["figures"] / "captions.md").read_text(encoding="utf-8")
     slopes = (paths["tables"] / "slopes.md").read_text(encoding="utf-8")

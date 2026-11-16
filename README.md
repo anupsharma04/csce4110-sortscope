@@ -4,7 +4,7 @@ Sorting-algorithm visualizer and benchmark tool — CSCE 4110 (Algorithms), Univ
 Team **Big O Squad**: Ingeet Adhikari, Anup Sharma, Gaurav Bhandari.
 
 SortScope implements Bubble (early exit), Selection, Insertion, Merge and Quick Sort (first / random / median-of-three
-pivot). Every sort counts its key comparisons, swaps and array writes through one shared counter. A matplotlib
+pivot), plus Heap Sort, the proposal's stretch goal. Every sort counts its key comparisons, swaps and array writes through one shared counter. A matplotlib
 animation shows each sort step by step. A benchmark runner measures runtime, operation counts and peak memory over
 five input types and sizes from 100 to 100,000. The analysis module checks the measurements against theory: closed-form
 counts, log–log slopes, doubling ratios and normalized runtime.
@@ -33,7 +33,7 @@ python -m pytest -q          # all tests should pass
 | Interactive menu (every demo part, with size and speed prompts) | `python -m sortscope` |
 | Animate one sort | `python -m sortscope visualize --algo insertion --input nearly_sorted --n 40` |
 | Animate your own list | `python -m sortscope visualize --algo merge --list "5 3 9 1 7" --interval 300` |
-| Demo part 2: all 7 algorithms racing on one 40-item input | `python -m sortscope visualize --demo all --n 40` |
+| Demo part 2: all 8 algorithms racing on one 40-item input | `python -m sortscope visualize --demo all --n 40` |
 | Demo part 3: Insertion, nearly sorted vs reverse | `python -m sortscope visualize --demo insertion --n 40` |
 | Demo part 3 (extended): Insertion on all 5 input types | `python -m sortscope visualize --demo inputs --n 40` |
 | Demo part 4: Quick first vs median-of-3 on sorted | `python -m sortscope visualize --demo quick --n 40` |
@@ -43,7 +43,7 @@ python -m pytest -q          # all tests should pass
 | Sort your own list, all algorithms | `python -m sortscope sort "5, 3, 9, 1, 7, 3"` |
 | Sort a long list (file or stdin) | `python -m sortscope sort --file numbers.txt --algo merge quick_median3`, or `... sort -` to read stdin |
 | Quick benchmark (seconds) | `python -m sortscope benchmark --quick` → `results/scratch/results_quick.csv` |
-| Full benchmark (≈10–20 min) | `python -m sortscope benchmark` → `results/results.csv` + `results_meta.json` |
+| Full benchmark (≈10–20 min) | `python -m sortscope benchmark --interleave` → `results/results.csv` + `results_meta.json` |
 | Custom benchmark | `python -m sortscope benchmark --algorithms merge quick_random --types random --sizes 1000 2000 4000 --out results/scratch/custom.csv` (without `--out` it **overwrites** `results/results.csv`) |
 | Plot a scratch run | `python -m sortscope plot --csv results/scratch/custom.csv --out results/scratch` |
 | Figures + tables | `python -m sortscope plot` → `results/figures/`, `results/tables/` |
@@ -62,7 +62,7 @@ saying what is allowed; the menu asks again instead of stopping; Ctrl+C exits cl
 | algorithm / input names | exactly the names below (the error lists them) |
 | output paths (`--out`, `--save`) | must be inside `results/` with the right extension (`.csv`, `.gif`/`.mp4`); add `--allow-outside-results` to write elsewhere on purpose |
 
-Algorithm names: `bubble selection insertion merge quick_first quick_random quick_median3`.
+Algorithm names: `bubble selection insertion merge quick_first quick_random quick_median3 heap`.
 Input types: `random sorted reverse nearly_sorted many_duplicates`.
 
 ## Example output
@@ -73,13 +73,14 @@ input:  [5, 3, 9, 1, 7, 3]
 sorted: [1, 3, 3, 5, 7, 9]
 
 algorithm              comparisons   swaps  writes   time ms  stable
-Bubble (early exit)             14       8      16    0.0025  yes
-Selection                       15       2       4    0.0021  no
-Insertion                       11       0      13    0.0020  yes
-Merge                           11       0      16    0.0055  yes
-Quick (first pivot)             23       4       8    0.0048  no
-Quick (random pivot)            27       9      18    0.0081  no
-Quick (median-of-3)             33       7      14    0.0056  no
+Bubble (early exit)             14       8      16    0.0037  yes
+Selection                       15       2       4    0.0028  no
+Insertion                       11       0      13    0.0029  yes
+Merge                           11       0      16    0.0066  yes
+Quick (first pivot)             23       4       8    0.0053  no
+Quick (random pivot)            27       9      18    0.0096  no
+Quick (median-of-3)             33       7      14    0.0063  no
+Heap                            15      10      20    0.0045  no
 
 time ms: median of 5 runs without counting (NullCounter); counts are exact, times vary by machine
 ```
@@ -124,8 +125,13 @@ These rules give exact formulas, which `tests/test_counts.py` asserts. The deriv
 | Quick, first pivot, sorted | comparisons = (n² + 3n − 4)/2, 0 swaps |
 | Quick, first pivot, all equal | balanced splits: C(m) = C(⌈m/2⌉) + C(⌊m/2⌋) + m + 1 + [m even] |
 | Quick, random pivot | mean over 200 seeds within 4 standard errors of the exact expectation, and within 10% of 2n ln n |
+| Heap, building the heap | comparisons ≤ 2(n − popcount(n)) < 2n for every input (the build is Θ(n)) |
+| Heap, whole sort | comparisons ≤ 2(n − popcount(n)) + 2·Σ⌊lg m⌋ for m = 1..n−1 (≈ 2n lg n); writes = 2·swaps |
+| Heap, all equal | comparisons = 3n − 6 (n ≥ 3), swaps = n − 1: equal keys are a Θ(n) case |
 
 **Design notes.**
+- Heap Sort is a binary max-heap stored in the array itself: build it bottom-up, then swap the root with the last
+  heap element n − 1 times. Sift-down is a loop, so it needs no recursion and no extra buffer.
 - Quick Sort uses Hoare partitioning. Lomuto becomes Θ(n²) when there are many duplicates; Hoare doesn't.
 - Quick Sort recurses on the smaller part and loops on the larger, so the recursion depth is ≤ ⌊lg n⌋ + 1 for every
   pivot rule.
@@ -155,7 +161,7 @@ For each configuration, three separate runs use the same seeded input:
 The benchmark prints an estimated duration first and warns when a run will take more than about 2 minutes.
 With `--interleave`, timing trial t of *every* configuration runs before trial t+1 of any, in a shuffled order,
 so slow drift in machine speed is spread across all configurations instead of landing on one. Use it for final
-results. The committed `results/results.csv` was produced in the default back-to-back mode.
+results. The committed `results/results.csv` was produced with `--interleave` (`results_meta.json` records the mode).
 
 Θ(n²) sorts, and Quick with first pivot on sorted or reverse input, are capped at n ≤ 5000. Larger
 configurations appear in the CSV as `status=skipped` with a reason. Two limits of tracemalloc to keep in mind:
@@ -172,11 +178,12 @@ sortscope/
   counter.py       OpCounter, NullCounter (the counting rules live here)
   registry.py      algorithm name -> sort function + complexity/stability metadata
   inputs.py        input generators (n, seed), inversion_count, parse_user_list
+  validation.py    checks for everything a user can type (numbers, lists, output paths)
   algorithms/      counted sorts used by the benchmark (one file per sort)
   steps/           the same sorts as event generators for the visualizer
   visualizer.py    matplotlib FuncAnimation bars, side-by-side mode, GIF/MP4 export
   benchmark.py     timing / counting / memory runs -> results/results.csv
-  analysis.py      figures, slopes, doubling ratios, Markdown tables
+  analysis.py      figures, expected-growth lines, slopes, doubling ratios, Markdown tables
 tests/             correctness, stability, exact counts, step equivalence, inputs, benchmark, CLI
 results/           results.csv, results_meta.json, figures/, tables/   (scratch/ is git-ignored)
 scripts/           reproduce_all.sh, reproduce_all.ps1
@@ -193,12 +200,27 @@ powershell -ExecutionPolicy Bypass -File scripts\reproduce_all.ps1   # Windows P
 On Windows, plain PowerShell's `bash` is the WSL launcher and fails unless a Linux distro is installed. Use the
 `.ps1` script, or run the `.sh` script from Git Bash.
 
-or step by step: `python -m pytest -q`, `python -m sortscope benchmark`, `python -m sortscope plot`.
+or step by step: `python -m pytest -q`, `python -m sortscope benchmark --interleave`, `python -m sortscope plot`.
 Every random choice is seeded (default seed 4110, recorded in the CSV and `results_meta.json`), so all operation
 counts reproduce exactly. Runtimes depend on the machine; `results_meta.json` records the Python version, CPU and date.
 
-`results/figures/captions.md` lists every figure with its numbered caption. `results/tables/` has the slopes,
-doubling ratios, pivot comparison, inversion table, runtime table and skipped configurations, all as Markdown.
+`results/figures/captions.md` lists every figure with its numbered caption. `results/tables/` has the summary
+table (`summary.md`: one row per algorithm), the slopes, doubling ratios, pivot comparison, inversion table,
+runtime table and skipped configurations, all as Markdown. The log–log figures (7 and 11) carry gray
+expected-growth lines (c·n², c·n lg n, c·n) next to the measured curves.
+
+## Differences from the proposal
+
+Everything in the proposal is implemented. Four things were done differently, each on purpose:
+
+| Proposal | What we did | Why |
+|---|---|---|
+| Raise Python's recursion limit for first-pivot Quick Sort on sorted input | No recursion-limit change. Quick Sort recurses on the smaller part and loops on the larger | The depth is then ≤ ⌊lg n⌋ + 1 for every pivot rule (1 on sorted input), so the Θ(n²) worst case runs without any risk of crashing the interpreter. The work is still Θ(n²) |
+| Quick Sort runs every size up to 100,000 on all five input types | First-pivot Quick on sorted and reverse input stops at n = 5,000; the larger sizes are in the CSV as `status=skipped` with the reason | That case is Θ(n²): n = 100,000 would need about 5·10⁹ comparisons per run. It is capped exactly like the three Θ(n²) sorts |
+| Demo part 3: Insertion Sort "showing a big jump in swaps" | The jump shows in **writes**; Insertion's swap counter stays 0 | Our Insertion Sort shifts elements (1 write each) instead of swapping neighbours. Shifts = inversions, the same number a swapping version would report as swaps. The proposal's metric is "swaps or writes" |
+| Stack: matplotlib, csv/pandas, pytest | Also numpy (`polyfit` for slopes), pillow (GIF export) and hypothesis (property tests, optional) | Needed for the slope fits and GIFs; hypothesis only adds tests |
+
+Heap Sort, the stretch goal, is implemented as the sixth algorithm (registry name `heap`).
 
 ## Contributions
 

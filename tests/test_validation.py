@@ -108,7 +108,7 @@ def test_benchmark_trials_and_seed(flag, bad, capsys) -> None:
     assert f"{flag} must be a whole number from" in cli_error(["benchmark", flag, bad], capsys)
 
 
-@pytest.mark.parametrize("flag, bad, valid", [("--algorithms", "heap", "quick_median3"), ("--types", "zigzag", "reverse")])
+@pytest.mark.parametrize("flag, bad, valid", [("--algorithms", "bogo", "quick_median3"), ("--types", "zigzag", "reverse")])
 def test_benchmark_names_list_valid_choices(flag, bad, valid, capsys) -> None:
     err = cli_error(["benchmark", flag, bad], capsys)
     assert f"invalid choice: '{bad}'" in err and valid in err

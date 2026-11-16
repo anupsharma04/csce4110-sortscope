@@ -1,1 +1,1 @@
-Figure 4: Median runtime (ms, 5 trials, NullCounter) vs n on nearly sorted input, linear axes. Missing points are configurations skipped by the benchmark caps (see CSV).
+Figure 4: Median runtime (ms, 5 trials, NullCounter) vs n on nearly sorted input, linear axes. (a) every algorithm up to n = 5,000; (b) the full size range for the sorts measured beyond it. Configurations above the benchmark caps were skipped (see the CSV and skipped.md).

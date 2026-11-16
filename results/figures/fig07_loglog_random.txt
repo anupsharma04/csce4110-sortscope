@@ -1,1 +1,1 @@
-Figure 7: Log–log runtime on random input. Slopes are numpy.polyfit fits of log t vs log n over n ≥ 500: ≈2 indicates Θ(n²), ≈1–1.15 indicates Θ(n log n) over this range.
+Figure 7: Log–log runtime on random input. Slopes are numpy.polyfit fits of log t vs log n over n ≥ 500: ≈2 indicates Θ(n²), ≈1–1.15 indicates Θ(n log n) over this range, ≈1 indicates Θ(n). Gray lines show the expected growth of each class present (c·n², c·n lg n, c·n), offset from the data by a constant factor; a measured curve of that class should run parallel to its line.

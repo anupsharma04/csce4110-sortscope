@@ -14,7 +14,7 @@ function Run([string]$label, [string[]]$cmd) {
 }
 
 Run "1/4 tests" @("-m", "pytest", "-q")
-Run "2/4 full benchmark (5 trials, seed 4110)" @("-m", "sortscope", "benchmark")
+Run "2/4 full benchmark (5 trials, seed 4110, interleaved)" @("-m", "sortscope", "benchmark", "--interleave")
 Run "3/4 figures and tables" @("-m", "sortscope", "plot")
 Run "4/4 demo animation (insertion)" @("-m", "sortscope", "visualize", "--demo", "insertion", "--n", "40",
     "--steps-per-frame", "4", "--save", "results/figures/demo_insertion.gif")

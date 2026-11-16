@@ -1,4 +1,4 @@
-"""Stability: Bubble/Insertion/Merge keep equal keys in order; Selection/Quick are shown unstable.
+"""Stability: Bubble/Insertion/Merge keep equal keys in order; Selection/Quick/Heap are shown unstable.
 
 Records compare by key only (``__lt__`` ignores ``idx``), and every sort compares
 only through ``counter.less`` -> ``<``, so ``idx`` reveals the final order of ties.
@@ -41,7 +41,7 @@ UNSTABLE = [n for n in names() if not get_info(n).stable]
 
 def test_registry_stability_flags_match_proposal() -> None:
     assert set(STABLE) == {"bubble", "insertion", "merge"}
-    assert set(UNSTABLE) == {"selection", "quick_first", "quick_random", "quick_median3"}
+    assert set(UNSTABLE) == {"selection", "quick_first", "quick_random", "quick_median3", "heap"}
 
 
 @pytest.mark.parametrize("name", STABLE)
@@ -62,6 +62,8 @@ def test_stable_sorts_keep_equal_keys_in_order(name: str) -> None:
         # Hoare stops on keys equal to the pivot and swaps them.
         ("quick_first", [1, 1], [1, 0]),
         ("quick_median3", [1, 1], [1, 0]),
+        # The root swap moves 1a from the front of the heap to the last slot, past 1b.
+        ("heap", [1, 1], [1, 0]),
     ],
 )
 def test_known_counterexamples_show_instability(name: str, keys: list[int], expected_idx: list[int]) -> None:
