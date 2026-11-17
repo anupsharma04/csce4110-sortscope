@@ -22,7 +22,7 @@ from sortscope import __main__ as cli
 from sortscope.counter import OpCounter
 from sortscope.registry import get_sort, names
 from sortscope.validation import (BENCH_N, SORT_LIST_MAX, VIS_LIST_MAX, VIS_N, check_int,
-                                  parse_int_list)
+                                  keep_negative_lists, parse_int_list, read_number_file)
 
 
 def cli_error(argv: list[str], capsys) -> str:
@@ -124,6 +124,39 @@ def test_sort_caps_length_and_names_bad_token(tmp_path, capsys) -> None:
         cli.main(["sort", "1, 2, 2.5"])
     err = cli_error(["sort", "1 2", "--algo", "bogo"], capsys)
     assert "invalid choice: 'bogo'" in err and "quick_median3" in err
+
+
+def test_typed_list_may_start_with_a_negative_number(tmp_path, capsys) -> None:
+    # Edge run 2026-11-16: argparse read "-5,3,1" as an unknown option, so `sort "-5,3,1"` and
+    # `visualize --list "-5,3,1"` were rejected although "-5, 3, 1" (with spaces) worked.
+    assert keep_negative_lists(["sort", "-5,3,1", "--algo", "merge", "-"]) == ["sort", " -5,3,1", "--algo", "merge", "-"]
+    assert keep_negative_lists(["--n", "-1", "--x", "-1.5", "-h"]) == ["--n", "-1", "--x", "-1.5", "-h"]  # argparse copes
+    for argv in (["sort", "-5,3,1", "--algo", "merge"], ["sort", "--algo", "merge", "--", "-5,3,1"]):
+        assert cli.main(argv) == 0
+        assert "sorted: [-5, 1, 3]" in capsys.readouterr().out
+    assert cli.parse_cli(["visualize", "--list", "-5,3,1"]).custom == [-5, 3, 1]
+    assert cli.parse_cli(["visualize", "--list", "-5,-3", "--n", "7"]).custom == [-5, -3]
+    with pytest.raises(SystemExit, match=r"not an integer: 'x' \(item 2\)"):
+        cli.main(["sort", "-5,x"])
+    assert "must be a whole number from 0 to 200; got -1" in cli_error(["visualize", "--n", "-1"], capsys)
+    out = tmp_path / "neg.gif"                       # the standalone module entry point gets the same treatment
+    from sortscope import visualizer
+    assert visualizer.main(["--list", "-2,1", "--save", str(out), "--allow-outside-results"]) == 0
+
+
+def test_sort_file_saved_by_powershell_or_notepad(tmp_path, capsys) -> None:
+    # Edge run 2026-11-16: Windows PowerShell's `>` writes UTF-16 with a byte-order mark; the
+    # file used to be rejected with "'utf-8' codec can't decode byte 0xff in position 0".
+    for name, encoding in (("ps.txt", "utf-16"), ("notepad.txt", "utf-8-sig"), ("plain.txt", "utf-8")):
+        f = tmp_path / name
+        f.write_bytes("5 3\r\n-1\r\n".encode(encoding))
+        assert read_number_file(f) == "5 3\r\n-1\r\n"         # the mark is never part of the text
+        assert cli.main(["sort", "--file", str(f), "--algo", "merge"]) == 0
+        assert "sorted: [-1, 3, 5]" in capsys.readouterr().out
+    binary = tmp_path / "picture.png"
+    binary.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+    with pytest.raises(SystemExit, match="is not a text file of numbers"):
+        cli.main(["sort", "--file", str(binary)])
 
 
 # ----------------------------------------------------------------- parse_int_list

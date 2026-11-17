@@ -44,11 +44,13 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from sortscope.inputs import generate, input_kinds
 from sortscope.validation import (ALLOW_OUTSIDE_FLAG, INTERVAL_MS, SEED, STEPS_PER_FRAME, VIS_LIST_MAX, VIS_N,
-                                  check_output_path, int_arg, parse_int_list, safe_console)
+                                  check_output_path, int_arg, keep_negative_lists, parse_int_list, safe_console)
 from sortscope.registry import get_info, names
 from sortscope.steps import Event, get_steps
 
@@ -218,8 +220,54 @@ N_SLIDER = (5, 200)
 SPEED_SLIDER_MAX = 50  # events per frame
 
 
+HOLD_FRAMES = 25      # saved files show the finished picture for this many extra frames
+# Saving a GIF keeps every frame in memory until the file is written (matplotlib's PillowWriter),
+# measured at about 5 bytes per pixel per frame: 1.6 MB for a one-panel frame. Bubble Sort on
+# 200 reversed items is 40,000 events, so one event per frame would need about 64 GB. A save
+# estimated above this limit is refused up front, with the --steps-per-frame value that fits.
+SAVE_MEMORY_LIMIT_MB = 3000
+SAVE_BYTES_PER_PIXEL = 5
+
+
+def figure_layout(count: int, interactive: bool) -> tuple[int, int, float, float]:
+    """(rows, columns, width, height) of the figure for ``count`` panels; sizes in inches.
+
+    1-2 panels sit in one row; more go into a grid of up to 4 columns. The on-screen window is
+    made a little bigger so the widgets do not shrink the plots.
+    """
+    ncols = count if count <= 2 else min(4, math.ceil(count / 2)) if count <= 8 else 4
+    nrows = math.ceil(count / ncols)
+    cell_w, cell_h = (6.5, 4.8) if count <= 2 else (4.6, 3.8)
+    strip = CONTROL_STRIP if interactive else 0.0
+    side = RADIO_COLUMN if interactive and count == 1 else 0.0
+    return nrows, ncols, cell_w * ncols + side, cell_h * nrows + 0.4 + strip
+
+
+def saved_frame_count(panels: list[PanelState], steps_per_frame: int, hold_frames: int = HOLD_FRAMES) -> int:
+    """Frames in a saved file: enough to play the longest panel, plus the hold at the end."""
+    longest = max(len(p.events) for p in panels)
+    return math.ceil(longest / steps_per_frame) + hold_frames
+
+
+def check_save_size(panels: list[PanelState], steps_per_frame: int) -> None:
+    """Fail fast (before any rendering) if a GIF of this animation would need too much memory."""
+    import matplotlib
+
+    _, _, width, height = figure_layout(len(panels), interactive=False)
+    pixels = width * height * matplotlib.rcParams["figure.dpi"] ** 2
+    max_frames = int(SAVE_MEMORY_LIMIT_MB * 2**20 / (pixels * SAVE_BYTES_PER_PIXEL))
+    frames = saved_frame_count(panels, steps_per_frame)
+    if frames > max_frames:
+        longest = max(len(p.events) for p in panels)
+        fits = math.ceil(longest / (max_frames - HOLD_FRAMES))
+        need_gb = frames * pixels * SAVE_BYTES_PER_PIXEL / 2**30
+        raise SystemExit(f"error: --save: this animation is {longest:,} steps = {frames:,} frames, and a GIF that long "
+                         f"needs about {need_gb:.0f} GB of memory to write (the limit here is {max_frames:,} frames). "
+                         f"Add --steps-per-frame {fits} (or more), or use a smaller --n")
+
+
 def build_animation(panels: list[PanelState], interval: int = 30, steps_per_frame: int = 1,
-                    hold_frames: int = 25, interactive: bool = False):
+                    hold_frames: int = HOLD_FRAMES, interactive: bool = False):
     """Create the figure and FuncAnimation. Returns (fig, anim, update_fn).
 
     ``interactive=True`` (the on-screen window) adds the controls and the
@@ -241,16 +289,11 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
     from matplotlib.animation import FuncAnimation
     from matplotlib.patches import Patch
 
-    # Layout: 1-2 panels in a row; more go into a grid of up to 4 columns.
     count = len(panels)
-    ncols = count if count <= 2 else min(4, math.ceil(count / 2)) if count <= 8 else 4
-    nrows = math.ceil(count / ncols)
-    cell_w, cell_h = (6.5, 4.8) if count <= 2 else (4.6, 3.8)
-    # The window is made a little bigger so the widgets do not shrink the plots.
     radios = interactive and count == 1
     strip = CONTROL_STRIP if interactive else 0.0
     side = RADIO_COLUMN if radios else 0.0
-    width, height = cell_w * ncols + side, cell_h * nrows + 0.4 + strip
+    nrows, ncols, width, height = figure_layout(count, interactive)
     fig, grid = plt.subplots(nrows, ncols, figsize=(width, height), squeeze=False)
     fig.patch.set_facecolor(SURFACE)
     axes = list(grid.flat)
@@ -278,7 +321,9 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
         ax.set_title(f"{get_info(p.algo).label}  ·  {p.kind.replace('_', ' ')}  ·  n={n}",
                      color=INK, fontsize=title_size, loc="left")
         width_ = 0.8 if n <= 60 else 0.95        # leave a visible gap between bars when possible
-        bar_set = ax.bar(range(n), [v - lo + 1 for v in p.arr], width=width_,
+        # float(): matplotlib stores heights in 64-bit numbers and raises OverflowError on a
+        # Python int beyond ±2^63, which a typed list may contain (values up to 30 digits).
+        bar_set = ax.bar(range(n), [float(v - lo + 1) for v in p.arr], width=width_,
                          color=COLORS["default"], edgecolor=INK, linewidth=0)
         # The live counters sit under the bars, in the x-label slot.
         text = ax.set_xlabel("", fontsize=8.5 if count <= 2 else 7, family="monospace", color=INK_SECONDARY)
@@ -303,7 +348,7 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
         """Repaint every bar's height and color and every counter line."""
         for p, bar_set, text, off in zip(panels, bars, texts, offsets):
             for i, rect in enumerate(bar_set):
-                rect.set_height(p.arr[i] - off)
+                rect.set_height(float(p.arr[i] - off))   # float: see setup_axes
                 color, lw = p.bar_style(i)
                 rect.set_facecolor(color)
                 rect.set_linewidth(lw)
@@ -431,8 +476,7 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
         fig.controls = SimpleNamespace(start=start, pause=pause, restart=restart, change=change,
                                        set_speed=set_speed, widgets=add_widgets())
     else:
-        longest = max(len(p.events) for p in panels)
-        frames = math.ceil(longest / steps_per_frame) + hold_frames  # hold the final picture
+        frames = saved_frame_count(panels, steps_per_frame, hold_frames)  # hold the final picture
     anim = FuncAnimation(fig, update, frames=frames, interval=interval, repeat=False,
                          blit=False, cache_frame_data=False)
     return fig, anim, update
@@ -459,8 +503,6 @@ def check_save_target(path: str, allow_outside: bool = True) -> str:
 
 def save_animation(anim, path: str, interval: int) -> None:
     """Write ``anim`` as GIF (Pillow) or MP4 (ffmpeg) at 1000/interval frames per second."""
-    from pathlib import Path
-
     from matplotlib import animation
 
     check_save_target(path)
@@ -515,7 +557,14 @@ def run(args: argparse.Namespace) -> int:
         raise SystemExit(f"error: {e}") from None
 
     if args.save:
+        # Everything that can stop a save is checked here, before any figure is built.
         args.save = check_save_target(args.save, allow_outside=args.allow_outside_results)
+        if args.save.lower().endswith(".gif"):   # ffmpeg (.mp4) is sent frame by frame: no build-up
+            check_save_size(panels, args.steps_per_frame)
+        try:
+            Path(args.save).parent.mkdir(parents=True, exist_ok=True)  # e.g. results/figures/ on a fresh checkout
+        except OSError as e:  # a file is in the way, read-only folder, ...
+            raise SystemExit(f"error: cannot write {args.save}: {e.strerror or e}") from None
         import matplotlib
         matplotlib.use("Agg")  # no window needed when writing a file
     import matplotlib.pyplot as plt
@@ -541,7 +590,7 @@ def main(argv: list[str] | None = None) -> int:
     safe_console()
     parser = argparse.ArgumentParser(prog="sortscope.visualizer", description="Animate a sort.")
     add_arguments(parser)
-    return run(parser.parse_args(argv))
+    return run(parser.parse_args(keep_negative_lists(sys.argv[1:] if argv is None else list(argv))))
 
 
 if __name__ == "__main__":

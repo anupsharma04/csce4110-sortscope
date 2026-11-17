@@ -58,7 +58,9 @@ saying what is allowed; the menu asks again instead of stopping; Ctrl+C exits cl
 | `benchmark --sizes` | whole numbers 1–100,000 (Θ(n²) sorts above 5,000 are recorded as skipped) |
 | `--trials` / `--seed` | 1–100 / 0–4,294,967,295 |
 | `--interval` / `--steps-per-frame` | 1–10,000 |
-| typed lists | integers separated by commas and/or spaces; ≤ 200 items for `visualize --list` and the menu, ≤ 10,000 for `sort` |
+| typed lists | integers separated by commas and/or spaces, negatives included (`"-5,3,1"`); ≤ 200 items for `visualize --list` and the menu, ≤ 10,000 for `sort` |
+| `sort --file` | a text file of such integers; UTF-8, or UTF-16 as written by Windows PowerShell's `>` |
+| `--save` to `.gif` | refused up front if the animation is too long to hold in memory (about 1,860 frames for one panel, fewer side by side); the message gives the `--steps-per-frame` that fits |
 | algorithm / input names | exactly the names below (the error lists them) |
 | output paths (`--out`, `--save`) | must be inside `results/` with the right extension (`.csv`, `.gif`/`.mp4`); add `--allow-outside-results` to write elsewhere on purpose |
 

@@ -29,6 +29,15 @@ def test_full_grid_contains_skipped_rows() -> None:
     assert len(grid) == 2 * 8
 
 
+def test_repeated_names_and_sizes_are_measured_once() -> None:
+    # Edge run 2026-11-16: `benchmark --algorithms merge merge --types random random` wrote every
+    # row four times, and `plot` then crashed on that CSV.
+    grid = build_grid(["merge", "heap", "merge"], ["sorted", "random", "sorted"], [200, 100, 200])
+    assert [(c.algo, c.kind, c.n) for c in grid] == [
+        ("merge", "sorted", 100), ("merge", "sorted", 200), ("merge", "random", 100), ("merge", "random", 200),
+        ("heap", "sorted", 100), ("heap", "sorted", 200), ("heap", "random", 100), ("heap", "random", 200)]
+
+
 def test_run_writes_csv_and_meta(tmp_path) -> None:
     out = tmp_path / "r.csv"
     grid = build_grid(["insertion", "quick_random"], ["random", "sorted"], [50, 6000])

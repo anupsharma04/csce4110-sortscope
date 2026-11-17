@@ -25,7 +25,7 @@ from sortscope.counter import OpCounter
 from sortscope.inputs import input_kinds
 from sortscope.registry import QUADRATIC, get_info, get_sort, names
 from sortscope.validation import (INTERVAL_MS, PROJECT_ROOT, SORT_LIST_MAX, STEPS_PER_FRAME, VIS_LIST_MAX, VIS_N,
-                                  check_int, parse_int_list, safe_console)
+                                  check_int, keep_negative_lists, parse_int_list, read_number_file, safe_console)
 
 # `sort` times each algorithm like the benchmark does (median of 5 trials). Above this many
 # items it times a single trial instead, so a long list with Θ(n²) sorts isn't run 6 times.
@@ -83,7 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     analysis.add_arguments(sub.add_parser("plot", help="figures + tables from results/results.csv"))
     p = sub.add_parser("sort", help="sort your own list with every algorithm and show the counts")
     p.add_argument("values", nargs="?",
-                   help='e.g. "5, 3, 9, 1" (put -- before a list that starts with "-", e.g. -- "-5,3"); '
+                   help='e.g. "5, 3, 9, 1" or "-5,3,1"; '
                         "use - to read from stdin. Long lists: use --file or stdin, because the Windows "
                         "command line is limited to about 32,000 characters")
     p.add_argument("--file", type=Path, help="read the numbers from a text file instead")
@@ -106,7 +106,7 @@ def dispatch(args: argparse.Namespace) -> int:
             raise SystemExit('error: give the numbers ("5, 3, 1"), - for stdin, or --file PATH (exactly one)')
         try:
             if args.file is not None:
-                text = args.file.read_text(encoding="utf-8-sig")
+                text = read_number_file(args.file)
             elif args.values == "-":
                 text = sys.stdin.read()
             else:
@@ -228,6 +228,9 @@ def parse_cli(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line. Only `test` accepts unknown options; they are passed to pytest
     (argparse.REMAINDER can't capture arguments that start with '-', hence parse_known_args)."""
     parser = build_parser()
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] in (["sort"], ["visualize"]):   # the two commands that take a typed list
+        argv = keep_negative_lists(argv)
     args, extra = parser.parse_known_args(argv)
     if extra and args.command != "test":
         parser.error(f"unrecognized arguments: {' '.join(extra)}")

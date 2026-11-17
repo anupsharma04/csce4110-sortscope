@@ -271,6 +271,47 @@ def test_bad_save_target_fails_before_rendering(tmp_path, monkeypatch) -> None:
     assert not (tmp_path / "x.mp4").exists()
 
 
+def test_values_beyond_64_bits_can_be_drawn(tmp_path) -> None:
+    # Edge run 2026-11-16: a typed list may hold 30-digit numbers; matplotlib raised
+    # OverflowError ("int too big to convert") while building the bars, in the window and in --save.
+    big = 10**30 - 1
+    for interactive in (False, True):
+        panels = make_panels(["selection"], ["random"], 4, 0, [big, -big, 0, 5])
+        fig, _, update = build_animation(panels, interactive=interactive)
+        for frame in range(len(panels[0].events) + 2):
+            update(frame)
+        fig.canvas.draw()
+        assert panels[0].arr == [-big, 0, 5, big]
+    out = tmp_path / "big.gif"
+    assert main(["--algo", "merge", f"--list={big} {-big} 0", "--save", str(out), "--allow-outside-results"]) == 0
+    assert out.stat().st_size > 0
+
+
+def test_gif_too_long_to_hold_in_memory_is_refused_with_the_fix(tmp_path) -> None:
+    # Edge run 2026-11-16: PillowWriter keeps every frame in memory (measured ≈1.6 MB per
+    # one-panel frame). Bubble on 200 reversed items = 40,025 frames ≈ 63 GB: the save ran for
+    # a long time and then died. It must be refused up front, naming a --steps-per-frame that fits.
+    import re
+
+    from sortscope.visualizer import check_save_size, saved_frame_count
+
+    out = tmp_path / "long.gif"
+    argv = ["--algo", "bubble", "--input", "reverse", "--n", "200", "--save", str(out), "--allow-outside-results"]
+    with pytest.raises(SystemExit, match=r"40,025 frames.*Add --steps-per-frame \d+") as e:
+        main(argv)
+    assert not out.exists()
+    fits = int(re.search(r"--steps-per-frame (\d+)", str(e.value)).group(1))
+    panels = make_panels(["bubble"], ["reverse"], 200, 0)
+    check_save_size(panels, fits)                               # the suggested value is accepted...
+    with pytest.raises(SystemExit):
+        check_save_size(panels, fits - 1)                       # ...and it is the smallest that is
+    assert saved_frame_count(panels, 1) == 40_000 + 25
+    # the committed demo GIFs (scripts/reproduce_all.*) stay well inside the limit
+    for demo_algos, demo_kinds in ((["insertion"], ["nearly_sorted", "reverse"]), (["quick_first", "quick_median3"], ["sorted"])):
+        check_save_size(make_panels(demo_algos, demo_kinds, 40, 0), 4)
+    check_save_size(make_panels(names(), ["random"], 40, 0), 4)  # --demo all --n 40 --steps-per-frame 4
+
+
 def test_rejects_huge_n() -> None:
     with pytest.raises(SystemExit):
         main(["--n", "5000", "--save", "x.gif"])

@@ -32,7 +32,7 @@ import pandas as pd
 
 from sortscope.inputs import generate, input_kinds, inversion_count
 from sortscope.registry import QUADRATIC, QUICK_VARIANTS, get_info, names
-from sortscope.validation import ALLOW_OUTSIDE_FLAG, RESULTS_DIR, check_output_path, safe_console
+from sortscope.validation import ALLOW_OUTSIDE_FLAG, BENCH_N, RESULTS_DIR, SEED, check_output_path, safe_console
 
 SLOPE_MIN_N = 500
 # The runtime-vs-n figures get a second panel when sizes go beyond this, because the Θ(n²)
@@ -103,15 +103,17 @@ class ResultsError(ValueError):
 REQUIRED_COLUMNS = ["algorithm", "input_type", "n", "status", "trial_median_ms",
                     "comparisons", "swaps", "writes", "max_depth", "peak_kb", "trials", "seed"]
 NUMERIC_COLUMNS = ["n", "trial_median_ms", "comparisons", "swaps", "writes", "max_depth", "peak_kb", "trials", "seed"]
+WHOLE_COLUMNS = ["n", "comparisons", "swaps", "writes", "max_depth", "trials", "seed"]   # the rest are measurements
 
 
 def load(csv_path: Path, warn=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (measured rows, skipped rows), validating the file first.
 
     * empty file / wrong columns / no measured rows -> ResultsError with a readable message
-    * individual malformed rows (non-numeric or missing values in a measured row, unknown
-      algorithm or input name) are dropped, and ``warn`` is called with their CSV line numbers,
-      so one bad line doesn't throw away a 10-minute benchmark.
+    * individual malformed rows (non-numeric, missing, negative, infinite or out-of-range values
+      in a measured row, unknown algorithm or input name) are dropped, and ``warn`` is called
+      with their CSV line numbers, so one bad line doesn't throw away a 10-minute benchmark.
+    * a configuration measured more than once keeps its last row (also reported through ``warn``).
     """
     import sys
 
@@ -124,6 +126,8 @@ def load(csv_path: Path, warn=None) -> tuple[pd.DataFrame, pd.DataFrame]:
         raise ResultsError(f"{csv_path} is empty — run `python -m sortscope benchmark` first") from None
     except (pd.errors.ParserError, UnicodeDecodeError) as e:
         raise ResultsError(f"{csv_path} is not a readable CSV file: {e}") from None
+    except OSError as e:  # --csv names a folder, or a file we are not allowed to open
+        raise ResultsError(f"cannot read {csv_path}: {e.strerror or e}") from None
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ResultsError(f"{csv_path} is not a SortScope results file (missing columns: {', '.join(missing)})")
@@ -136,7 +140,13 @@ def load(csv_path: Path, warn=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     ok = df[df["status"] == "ok"].copy()
     for col in NUMERIC_COLUMNS:
         ok[col] = pd.to_numeric(ok[col], errors="coerce")
-    bad = ok[NUMERIC_COLUMNS].isna().any(axis=1) | ~ok["algorithm"].isin(names()) | ~ok["input_type"].isin(input_kinds())
+    # A measured row is usable only if every number in it is one the benchmark could have written:
+    # finite and not negative; the counts whole; n within the benchmark's size range (the analysis
+    # rebuilds inputs of size n, so n = 100000000000 would exhaust memory); seed within its range.
+    numbers = ok[NUMERIC_COLUMNS]
+    sane = np.isfinite(numbers).all(axis=1) & (numbers >= 0).all(axis=1) & (numbers[WHOLE_COLUMNS] % 1 == 0).all(axis=1)
+    sane &= ok["n"].between(*BENCH_N) & (ok["seed"] <= SEED[1])
+    bad = ~sane | ~ok["algorithm"].isin(names()) | ~ok["input_type"].isin(input_kinds())
     if bad.any():
         lines = [int(i) + 2 for i in ok.index[bad]]  # +1 for the header, +1 for 1-based line numbers
         warn(f"skipped {len(lines)} malformed row(s) in {csv_path} at line(s) {lines[:10]}"
@@ -145,6 +155,15 @@ def load(csv_path: Path, warn=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     if ok.empty:
         raise ResultsError(f"{csv_path} has no usable measured rows (status=ok) — nothing to plot")
     ok["n"] = ok["n"].astype(int)
+    # Every table and figure assumes one measurement per (algorithm, input, n). A CSV can hold
+    # the same configuration twice (two result files joined together, or a run started with a
+    # repeated name); the row furthest down the file is the newer one, so that one is kept.
+    repeated = ok.duplicated(["algorithm", "input_type", "n"], keep="last")
+    if repeated.any():
+        lines = [int(i) + 2 for i in ok.index[repeated]]
+        warn(f"{csv_path} measures {len(lines)} configuration(s) more than once; using the last row of each "
+             f"and ignoring line(s) {lines[:10]}{' …' if len(lines) > 10 else ''}")
+        ok = ok[~repeated]
     ok["ms"] = ok["trial_median_ms"].astype(float)
     return ok, df[df["status"] == "skipped"].copy()
 
@@ -202,7 +221,8 @@ def doubling_table(ok: pd.DataFrame, kind: str) -> pd.DataFrame:
         sub = ok[(ok.algorithm == algo) & (ok.input_type == kind)].set_index("n").ms
         row = {"algorithm": algo}
         for a, b in pairs:
-            row[f"{a}→{b}"] = round(sub[b] / sub[a], 2) if a in sub and b in sub else None
+            # sub[a] > 0: a run faster than the CSV's 4 decimals is recorded as 0.0 ms -> no ratio
+            row[f"{a}→{b}"] = round(sub[b] / sub[a], 2) if a in sub and b in sub and sub[a] > 0 else None
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -227,7 +247,8 @@ def summary_table(ok: pd.DataFrame, slopes: pd.DataFrame, kind: str = "random") 
         row = {"algorithm": info.label, "expected": expected_class(algo, kind),
                "slope": "—" if slope[algo] is None or pd.isna(slope[algo]) else f"{slope[algo]:.2f}"}
         if pair:
-            row[f"T({pair[1]})/T({pair[0]})"] = f"{sub.ms[pair[1]] / sub.ms[pair[0]]:.2f}"
+            small, big = sub.ms[pair[0]], sub.ms[pair[1]]
+            row[f"T({pair[1]})/T({pair[0]})"] = f"{big / small:.2f}" if small > 0 else "—"   # 0.0 ms: no ratio
         row.update({"median ms": round(float(r.ms), 3), "comparisons": int(r.comparisons), "swaps": int(r.swaps),
                     "writes": int(r.writes), "peak KB": round(float(r.peak_kb), 3), "max depth": int(r.max_depth),
                     "stable": "yes" if info.stable else "no"})
@@ -549,7 +570,7 @@ def fig_quick_pivots(table: pd.DataFrame, n: int | None, fw: FigureWriter) -> No
 
     Dots, not bars: a log axis has no zero, so the length of a bar on it would mean nothing.
     """
-    if n is None:
+    if n is None or (table.comparisons <= 0).any():   # 0 comparisons (n = 1) has no place on a log axis
         return
     kinds = list(dict.fromkeys(table.input))
     fig, (ax,) = _new_fig(width=7.6)

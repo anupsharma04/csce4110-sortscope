@@ -111,8 +111,13 @@ class Config:
 
 def build_grid(algorithms: list[str], kinds: list[str], sizes: list[int] | None) -> list[Config]:
     """Full proposal grid by default: every algorithm at every size, so that capped
-    configurations appear in the CSV as skipped rows."""
+    configurations appear in the CSV as skipped rows.
+
+    A name or size given twice (``--algorithms merge merge``) is measured once: the analysis
+    expects one row per configuration. dict.fromkeys drops repeats and keeps the typed order.
+    """
     sizes = sorted(set(sizes)) if sizes else FULL_SIZES
+    algorithms, kinds = list(dict.fromkeys(algorithms)), list(dict.fromkeys(kinds))
     return [Config(a, k, n) for a in algorithms for k in kinds for n in sizes]
 
 

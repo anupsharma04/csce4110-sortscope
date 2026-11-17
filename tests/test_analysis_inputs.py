@@ -97,6 +97,83 @@ def test_unknown_status_is_reported(tmp_path, good_csv) -> None:
     assert len(warnings) == 1 and "unknown status" in warnings[0] and "line(s) [5]" in warnings[0]
 
 
+def test_repeated_configurations_keep_the_last_row(tmp_path, good_csv) -> None:
+    # Edge run 2026-11-16: a CSV holding a configuration twice (two result files joined, or a
+    # benchmark started with a repeated name) crashed `plot` with a TypeError in summary_table.
+    lines = good_csv.read_text(encoding="utf-8").splitlines()
+    total = len(lines) - 1
+    newer = lines[1].split(",")
+    newer[5] = "123.4567"                               # trial_median_ms of the repeated first row
+    p = write(tmp_path, "twice.csv", "\n".join(lines + lines[1:4] + [",".join(newer)]) + "\n")
+    warnings = []
+    ok, _ = load(p, warn=warnings.append)
+    assert len(ok) == total                             # one row per configuration again
+    assert len(warnings) == 1 and "more than once" in warnings[0] and "[2, 3, 4, 77]" in warnings[0]
+    first = ok[(ok.algorithm == newer[0]) & (ok.input_type == newer[1]) & (ok.n == int(newer[2]))]
+    assert first.ms.tolist() == [123.4567]              # the row furthest down the file won
+    analyze(p, tmp_path / "out")                        # and every figure and table is still made
+    assert "123.4567" in (tmp_path / "out" / "tables" / "runtime_random.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("column, value", [
+    ("n", "100000000000"),          # used to end in MemoryError: the analysis rebuilds an input of size n
+    ("n", "inf"), ("n", "1e400"),   # used to stop the whole plot with a pandas "non-finite values" error
+    ("n", "0"), ("n", "-5"), ("n", "1.5"),                  # used to be plotted as if they were real sizes
+    ("trial_median_ms", "inf"), ("trial_median_ms", "-1"),
+    ("comparisons", "-7"), ("comparisons", "1.5"), ("writes", "inf"), ("peak_kb", "-1"),
+    ("seed", "-1"), ("seed", "1e30"), ("trials", "2.5"),
+])
+def test_impossible_number_drops_only_that_row(tmp_path, good_csv, column, value) -> None:
+    # Edge run 2026-11-16: a value the benchmark could never have written (hand-edited or damaged file).
+    col = good_csv.read_text(encoding="utf-8").splitlines()[0].split(",").index(column)
+
+    def damage(line):
+        f = line.split(",")
+        f[col] = value
+        return ",".join(f)
+
+    p = _corrupt(good_csv, tmp_path, "impossible.csv", 2, damage)   # line 2: insertion / random / n=250
+    warnings = []
+    ok, _ = load(p, warn=warnings.append)
+    assert len(warnings) == 1 and "malformed" in warnings[0] and "line(s) [2]" in warnings[0]
+    assert len(ok) == len(good_csv.read_text(encoding="utf-8").splitlines()) - 2
+    assert ok.n.between(1, 100_000).all()
+
+
+def test_zero_runtime_is_a_legal_measurement(tmp_path, good_csv) -> None:
+    # 0.0000 ms is what a sort faster than the 4-decimal rounding is recorded as: keep the row.
+    p = _corrupt(good_csv, tmp_path, "zero.csv", 2, lambda line: ",".join(
+        "0.0000" if i == 5 else f for i, f in enumerate(line.split(","))))
+    warnings = []
+    ok, _ = load(p, warn=warnings.append)
+    assert not warnings and (ok.ms == 0).sum() == 1
+    import warnings as python_warnings
+
+    with python_warnings.catch_warnings():
+        python_warnings.simplefilter("error", RuntimeWarning)     # T(500)/T(250) must not divide by zero
+        paths = analyze(p, tmp_path / "out")
+    doubling = (paths["tables"] / "doubling.md").read_text(encoding="utf-8")
+    assert "inf" not in doubling and "| insertion | — |" in doubling
+
+
+def test_csv_path_that_is_a_folder(tmp_path) -> None:
+    # Edge run 2026-11-16: used to say "cannot write figures/tables under ..." (wrong side of the problem).
+    with pytest.raises(SystemExit, match="cannot read"):
+        main(["--csv", str(tmp_path), "--out", str(tmp_path / "out"), OUTSIDE])
+
+
+def test_single_item_inputs_plot_without_warnings(tmp_path, recwarn) -> None:
+    # n = 1 means 0 comparisons everywhere; the pivot chart (log axis) is skipped instead of
+    # letting matplotlib print "Data has no positive values" warnings.
+    p = tmp_path / "one.csv"
+    run_benchmark(build_grid(["quick_first", "quick_random", "quick_median3"], ["random", "sorted", "reverse",
+                                                                              "many_duplicates"], [1]),
+                  trials=1, seed=1, out=p, verbose=False)
+    paths = analyze(p, tmp_path / "out")
+    assert not [w for w in recwarn if "log-scaled" in str(w.message)]
+    assert not list(paths["figures"].glob("*quick_pivots*"))
+
+
 @pytest.mark.parametrize("kinds", [["random"], ["sorted"]])
 def test_csv_with_one_input_type_still_plots(tmp_path, kinds) -> None:
     # README "Custom benchmark" then "Plot a scratch run": the log-log figures (random and sorted)

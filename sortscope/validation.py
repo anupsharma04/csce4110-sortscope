@@ -53,6 +53,37 @@ def safe_console() -> None:
             pass
 
 
+_STARTS_NEGATIVE_RE = re.compile(r"-[0-9]")
+_ARGPARSE_NEGATIVE_RE = re.compile(r"-[0-9]+|-[0-9]*\.[0-9]+")   # what argparse itself accepts as a value
+
+
+def keep_negative_lists(argv: list[str]) -> list[str]:
+    """Let a typed list start with a negative number: ``sort "-5,3,1"``, ``--list "-5,3,1"``.
+
+    argparse takes any word that starts with "-" for an option name, unless it is a single
+    negative number ("-5") or contains a space ("-5, 3"). So "-5,3,1" used to be rejected as
+    an "unrecognized argument". A leading space makes argparse read such a word as plain text;
+    parse_int_list / check_int strip the space again, so the value itself is unchanged.
+    """
+    return [" " + a if _STARTS_NEGATIVE_RE.match(a) and not _ARGPARSE_NEGATIVE_RE.fullmatch(a) else a
+            for a in argv]
+
+
+def read_number_file(path: Path) -> str:
+    """Text of a file of numbers, whatever a Windows tool saved it as.
+
+    Windows PowerShell's ``>`` redirect writes UTF-16 with a byte-order mark; Notepad may add a
+    UTF-8 one. The mark says which encoding it is, so decode accordingly (default UTF-8).
+    Raises OSError (unreadable file) or ValueError (bytes that are not text in that encoding).
+    """
+    raw = Path(path).read_bytes()
+    encoding = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"
+    try:
+        return raw.decode(encoding)
+    except UnicodeDecodeError:
+        raise ValueError(f"{path} is not a text file of numbers") from None
+
+
 def check_int(value: object, name: str, lo: int, hi: int, hint: str = "") -> int:
     """Return ``value`` as an int in [lo, hi], or raise ValueError saying what is allowed."""
     allowed = f"{name} must be a whole number from {lo:,} to {hi:,}"
