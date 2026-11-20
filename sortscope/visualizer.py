@@ -24,9 +24,12 @@ the same ones the counted benchmark version reports (tests prove this).
 
 Controls in the window (not in saved GIF/MP4 files; see ``build_animation``):
     space / Start, Pause buttons   pause / resume
+    right arrow / Step button      pause and apply exactly one event (one comparison, swap or write)
     r / Restart button             restart every panel from its original unsorted input
     n slider, speed slider         input size (5-200), events applied per frame
     radio buttons (one panel only) algorithm and input type
+With one or two panels, each panel also shows the algorithm's average and worst case and
+whether it is stable (from the registry), so the picture can be read against the theory.
 Changing n, the algorithm or the input type builds a new ``PanelState`` and
 waits, paused, for Start. Restart is ``PanelState.reset()``: put back the saved copy of the input, zero
 the counters, rewind to event 0. The event list is reused, not recomputed —
@@ -213,7 +216,22 @@ def make_panels(algos: list[str], kinds: list[str], n: int, seed: int,
     return panels
 
 
-KEY_HINTS = "space: pause / resume    r: restart"
+KEY_HINTS = "space: pause / resume    →: step    r: restart"
+STEP_KEYS = ("right",)  # matplotlib's name for the right-arrow key
+
+
+def complexity_text(algo: str) -> str:
+    """Short theory label for a panel, e.g. ``avg Θ(n log n) · worst Θ(n²) · unstable``.
+
+    Built from the registry metadata (the same table the report and README use), so the
+    visualizer can never disagree with it.
+    """
+    info = get_info(algo)
+
+    def theta(cls: str) -> str:
+        return f"Θ({cls.replace('^2', '²')})"
+
+    return f"avg {theta(info.time_avg)} · worst {theta(info.time_worst)} · {'stable' if info.stable else 'unstable'}"
 CONTROL_STRIP = 0.7   # inches under the plots for the buttons and sliders (window only)
 RADIO_COLUMN = 1.9    # inches left of the plot for the radio buttons (single-panel window only)
 N_SLIDER = (5, 200)
@@ -275,7 +293,8 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
     frames, no widgets, no hints.
 
     Controls (keys and widgets call the same functions, exposed as ``fig.controls``):
-        Start / Pause / Restart buttons; space = pause/resume, r = restart
+        Start / Pause / Step / Restart buttons; space = pause/resume, → = step, r = restart
+        Step          pause, then apply exactly one event to every panel
         n slider      new input of that size             } these three load the new
         radio buttons algorithm and input type            } unsorted input and wait,
                       (only when there is one panel)      } paused, for Start
@@ -320,6 +339,8 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
         ax.spines["bottom"].set_color(GRID)
         ax.set_title(f"{get_info(p.algo).label}  ·  {p.kind.replace('_', ' ')}  ·  n={n}",
                      color=INK, fontsize=title_size, loc="left")
+        if count <= 2:   # the grid demos (3-8 panels) have no room for a second label
+            ax.set_title(complexity_text(p.algo), color=INK_SECONDARY, fontsize=8.5, loc="right")
         width_ = 0.8 if n <= 60 else 0.95        # leave a visible gap between bars when possible
         # float(): matplotlib stores heights in 64-bit numbers and raises OverflowError on a
         # Python int beyond ±2^63, which a typed list may contain (values up to 30 digits).
@@ -395,6 +416,21 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
     def toggle() -> None:
         start() if paused else pause()
 
+    def step() -> None:
+        """Pause, then apply exactly one event to every panel (one comparison, swap or write).
+
+        Lets a viewer walk through a sort one operation at a time; Start (or space) plays on
+        from there. Does nothing once every panel is finished (Restart replays).
+        """
+        if finished():
+            return
+        if not paused:
+            set_paused(True)
+        for p in panels:
+            p.advance(1)
+        draw()
+        fig.canvas.draw_idle()
+
     def restart() -> None:
         """Rewind every panel to its original unsorted input and play (even if paused)."""
         for p in panels:
@@ -424,6 +460,8 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
         key = (event.key or "").lower()
         if key in (" ", "space"):
             toggle()
+        elif key in STEP_KEYS:
+            step()
         elif key == "r":
             restart()
 
@@ -437,14 +475,15 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
 
         w = SimpleNamespace()
         y = legend_frac * height + 0.2          # the control strip sits just above the legend
-        for k, (label, action) in enumerate((("Start", start), ("Pause", pause), ("Restart", restart))):
-            button = Button(place(0.2 + 0.9 * k, y, 0.8, 0.3), label, color=SURFACE, hovercolor=GRID)
+        buttons = (("Start", start), ("Pause", pause), ("Step", step), ("Restart", restart))
+        for k, (label, action) in enumerate(buttons):
+            button = Button(place(0.2 + 0.78 * k, y, 0.7, 0.3), label, color=SURFACE, hovercolor=GRID)
             button.on_clicked(lambda event, action=action: action())
             setattr(w, label.lower(), button)
-        w.n = Slider(place(3.2, y + 0.05, 1.5, 0.2), "n", *N_SLIDER, valinit=n, valstep=1,
+        w.n = Slider(place(3.65, y + 0.05, 1.3, 0.2), "n", *N_SLIDER, valinit=n, valstep=1,
                      color=INK_SECONDARY)
         w.n.on_changed(lambda value: change(size=value))
-        w.speed = Slider(place(5.8, y + 0.05, 1.5, 0.2), "speed", 1, max(SPEED_SLIDER_MAX, steps_per_frame),
+        w.speed = Slider(place(6.0, y + 0.05, 1.3, 0.2), "speed", 1, max(SPEED_SLIDER_MAX, steps_per_frame),
                          valinit=steps_per_frame, valstep=1, valfmt="%d / frame", color=INK_SECONDARY)
         w.speed.on_changed(set_speed)
         if radios:                              # one panel: let the user pick what it shows
@@ -473,7 +512,7 @@ def build_animation(panels: list[PanelState], interval: int = 30, steps_per_fram
         # Kept on the figure for two reasons: matplotlib only holds weak references
         # to widgets (they stop responding if nothing else refers to them), and the
         # tests call these actions directly.
-        fig.controls = SimpleNamespace(start=start, pause=pause, restart=restart, change=change,
+        fig.controls = SimpleNamespace(start=start, pause=pause, step=step, restart=restart, change=change,
                                        set_speed=set_speed, widgets=add_widgets())
     else:
         frames = saved_frame_count(panels, steps_per_frame, hold_frames)  # hold the final picture

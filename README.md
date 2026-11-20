@@ -98,12 +98,16 @@ Controls in the visualizer window (plain matplotlib widgets, no extra dependency
 
 - **Start / Pause / Restart** buttons; the keys still work too: **space** pauses/resumes, **r** restarts from
   the original unsorted input (hints are shown in the top-right corner).
+- **Step** button or the **→** key: pauses and applies exactly one event (one comparison, swap or write), so
+  you can walk through a sort one operation at a time and then press Start to play on from there.
 - **n** slider (5–200) and **speed** slider (events applied per frame).
 - **algorithm** and **input** radio buttons, when the window shows a single panel (the side-by-side demos keep
   their fixed pairing).
 
 Changing n, the algorithm or the input loads the new unsorted list and waits for Start (or space). Saved
-GIF/MP4 files contain no controls.
+GIF/MP4 files contain no controls. With one or two panels, the top-right of each panel shows the algorithm's
+average and worst case and whether it is stable (e.g. `avg Θ(n log n) · worst Θ(n²) · unstable`), taken from
+the registry.
 
 ## How operations are counted
 
@@ -228,6 +232,6 @@ Heap Sort, the stretch goal, is implemented as the sixth algorithm (registry nam
 
 | Module | Owner |
 |---|---|
-| M1 Sorting Engine, M2 Input Generator | Ingeet Adhikari |
+| M1 Sorting Engine, M2 Input Generator, visualizer Step control and complexity labels | Ingeet Adhikari |
 | M3 Visualizer (step generators), Tests | Anup Sharma |
 | M4 Benchmark Runner, M5 Results & Plots, Menu | Gaurav Bhandari |
