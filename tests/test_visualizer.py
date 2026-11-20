@@ -196,6 +196,66 @@ def test_buttons_start_pause_restart() -> None:
     assert panels[0].pos == 3
 
 
+def test_step_button_and_right_arrow_apply_one_event() -> None:
+    panels, fig, update, w = _window()
+    update(0)                           # playing: 3 events per frame
+    assert panels[0].pos == 3
+    _click(fig, w.step)                 # Step pauses, then applies exactly one event
+    assert panels[0].pos == 4 and fig.texts[0].get_text().startswith("PAUSED")
+    update(1)                           # paused: timer frames do nothing
+    assert panels[0].pos == 4
+    _press(fig, "right")                # the → key does the same as the button
+    assert panels[0].pos == 5
+    ev = panels[0].events[4]            # the highlight shows only that one event
+    if ev[0] == "compare":
+        assert panels[0].compared == {ev[1], ev[2]} and panels[0].changed == set()
+    _click(fig, w.start)                # Start plays on from where stepping stopped
+    update(2)
+    assert panels[0].pos == 8
+
+
+def test_stepping_to_the_end_matches_the_benchmark_counts() -> None:
+    panels, fig, update, w = _window(["quick_first", "quick_median3"], ["sorted"], n=12)
+    longest = max(len(p.events) for p in panels)
+    for _ in range(longest + 5):        # extra presses after the end are ignored
+        _press(fig, "right")
+    for p in panels:
+        assert p.done and p.arr == list(range(12))
+        c = OpCounter()
+        expected = list(range(12))
+        get_sort(p.algo, seed=0)(expected, c)
+        assert (p.comparisons, p.swaps, p.writes) == (c.comparisons, c.swaps, c.writes)
+    _click(fig, w.restart)              # Restart still rewinds after stepping
+    assert all(p.pos == 0 for p in panels)
+
+
+def test_complexity_label_comes_from_the_registry() -> None:
+    from sortscope.visualizer import complexity_text
+
+    assert complexity_text("quick_first") == "avg Θ(n log n) · worst Θ(n²) · unstable"
+    assert complexity_text("insertion") == "avg Θ(n²) · worst Θ(n²) · stable"
+    assert complexity_text("merge") == "avg Θ(n log n) · worst Θ(n log n) · stable"
+    for name in names():                # every algorithm has a label
+        assert complexity_text(name).startswith("avg Θ(")
+    import gc
+
+    import matplotlib.pyplot as plt
+
+    pair = _window(["quick_first", "quick_median3"], ["sorted"])
+    assert [ax.get_title(loc="right") for ax in pair[1].axes[:2]] == [
+        complexity_text("quick_first"), complexity_text("quick_median3")]
+    single = _window()                  # one panel: the label follows the algorithm radio button
+    single[3].algo.set_active(names().index("heap"))
+    assert single[1].axes[0].get_title(loc="right") == complexity_text("heap")
+    grid = build_animation(make_panels(names()[:4], ["random"], 10, 0))   # 4 panels: no room
+    assert all(ax.get_title(loc="right") == "" for ax in grid[0].axes)
+    # Free these never-rendered animations now, while this module's warning filter is active,
+    # instead of at interpreter exit (where matplotlib would print "Animation was deleted").
+    plt.close("all")
+    del pair, single, grid
+    gc.collect()
+
+
 def test_radio_buttons_load_a_new_panel_and_wait_for_start() -> None:
     panels, fig, update, w = _window()
     update(0)
