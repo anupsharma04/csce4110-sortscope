@@ -69,26 +69,36 @@ Input types: `random sorted reverse nearly_sorted many_duplicates`.
 
 ## Example output
 
+Run this command:
+
+```bash
+python -m sortscope sort "5, 3, 9, 1, 7, 3"
 ```
-$ python -m sortscope sort "5, 3, 9, 1, 7, 3"
+
+It prints the input and the sorted result:
+
+```
 input:  [5, 3, 9, 1, 7, 3]
 sorted: [1, 3, 3, 5, 7, 9]
-
-algorithm              comparisons   swaps  writes   time ms  stable
-Bubble (early exit)             14       8      16    0.0037  yes
-Selection                       15       2       4    0.0028  no
-Insertion                       11       0      13    0.0029  yes
-Merge                           11       0      16    0.0066  yes
-Quick (first pivot)             23       4       8    0.0053  no
-Quick (random pivot)            27       9      18    0.0096  no
-Quick (median-of-3)             33       7      14    0.0063  no
-Heap                            15      10      20    0.0045  no
-
-time ms: median of 5 runs without counting (NullCounter); counts are exact, times vary by machine
 ```
 
-The counts are the same on every machine. The time column is measured in a separate run with `NullCounter`
-(median of 5 runs; a single run for lists over 2,000 items), so it will differ from the numbers above.
+Then it prints one row per algorithm:
+
+| Algorithm | Comparisons | Swaps | Writes | Time (ms) | Stable |
+|---|--:|--:|--:|--:|:-:|
+| Bubble (early exit) | 14 | 8 | 16 | 0.0037 | yes |
+| Selection | 15 | 2 | 4 | 0.0028 | no |
+| Insertion | 11 | 0 | 13 | 0.0029 | yes |
+| Merge | 11 | 0 | 16 | 0.0066 | yes |
+| Quick (first pivot) | 23 | 4 | 8 | 0.0053 | no |
+| Quick (random pivot) | 27 | 9 | 18 | 0.0096 | no |
+| Quick (median-of-3) | 33 | 7 | 14 | 0.0063 | no |
+| Heap | 15 | 10 | 20 | 0.0045 | no |
+
+How to read the columns:
+- **Comparisons / Swaps / Writes**: exact operation counts (see [How operations are counted](#how-operations-are-counted)). They are the same on every machine.
+- **Time (ms)**: the median of 5 runs with `NullCounter` (a single run for lists over 2,000 items). It is measured separately from the counts and depends on your machine, so your numbers will differ.
+- **Stable**: whether equal values keep their original order.
 
 Bar colors in the visualizer: yellow = compared, red with an outline = swapped/written, violet = pivot,
 green = in its final position, gray = untouched. Live counters under the bars show the step number,

@@ -1,5 +1,7 @@
 """Regression tests for broken results files given to `plot` (attack cases #47-#51)."""
 
+import re
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -152,7 +154,7 @@ def test_zero_runtime_is_a_legal_measurement(tmp_path, good_csv) -> None:
     with python_warnings.catch_warnings():
         python_warnings.simplefilter("error", RuntimeWarning)     # T(500)/T(250) must not divide by zero
         paths = analyze(p, tmp_path / "out")
-    doubling = (paths["tables"] / "doubling.md").read_text(encoding="utf-8")
+    doubling = re.sub(r" {2,}", " ", (paths["tables"] / "doubling.md").read_text(encoding="utf-8"))  # drop padding
     assert "inf" not in doubling and "| insertion | — |" in doubling
 
 
@@ -211,7 +213,7 @@ def test_csv_text_cannot_break_a_markdown_table(tmp_path, good_csv) -> None:
     paths = analyze(p, tmp_path / "out")
     lines = (paths["tables"] / "skipped.md").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 5                               # heading, blank, header, separator, ONE data row
-    assert lines[4] == r"| bubble | random | 9,000 | a \| b \| injected \| row \| back\\\|slash |"
+    assert re.sub(r" {2,}", " ", lines[4]) == r"| bubble | random | 9,000 | a \| b \| injected \| row \| back\\\|slash |"
     # every "|" that is not escaped is a real column border: 4 columns -> 5 borders
     assert lines[4].replace("\\\\", "").replace("\\|", "").count("|") == 5
 

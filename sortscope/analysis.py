@@ -267,21 +267,46 @@ def _md_cell(text: str) -> str:
     return " ".join(text.splitlines())  # line breaks -> spaces; text without any is unchanged
 
 
+def _is_number(text: str) -> bool:
+    """True for cells like "1,234", "0.23", "-5" (used to right-align numeric columns)."""
+    try:
+        float(text.replace(",", ""))
+        return True
+    except ValueError:
+        return False
+
+
 def to_markdown(df: pd.DataFrame, title: str, note: str = "") -> str:
-    """Render a DataFrame as a Markdown table with a heading and an optional note."""
+    """Render a DataFrame as a Markdown table with a heading and an optional note.
+
+    Columns are padded to a common width so the raw .md file lines up like the rendered table;
+    numeric columns are right-aligned (both in the raw text and via ``---:`` when rendered).
+    """
     cols = list(df.columns)
     lines = [f"### {title}", ""]
     if note:
         lines += [note, ""]
-    lines.append("| " + " | ".join(_md_cell(str(c)) for c in cols) + " |")
-    lines.append("|" + "|".join("---" for _ in cols) + "|")
+    header = [_md_cell(str(c)) for c in cols]
+    rows = []
     for _, r in df.iterrows():
         cells = []
         for c in cols:
             v = r[c]
             cells.append("—" if v is None or (isinstance(v, float) and math.isnan(v)) else
                          (f"{v:,}" if isinstance(v, (int, np.integer)) else _md_cell(str(v))))
-        lines.append("| " + " | ".join(cells) + " |")
+        rows.append(cells)
+    numeric = [bool(rows) and all(row[i] == "—" or _is_number(row[i]) for row in rows)
+               and any(row[i] != "—" for row in rows) for i in range(len(cols))]
+    widths = [max([len(header[i]), 3] + [len(row[i]) for row in rows]) for i in range(len(cols))]
+
+    def line(cells: list[str]) -> str:
+        return "| " + " | ".join(cell.rjust(w) if num else cell.ljust(w)
+                                 for cell, w, num in zip(cells, widths, numeric)) + " |"
+
+    lines.append(line(header))
+    lines.append("|" + "|".join("-" * (w + 1) + ":" if num else "-" * (w + 2)
+                                for w, num in zip(widths, numeric)) + "|")
+    lines += [line(row) for row in rows]
     return "\n".join(lines) + "\n"
 
 
@@ -683,10 +708,13 @@ def _analyze(csv_path: Path, out_root: Path) -> dict[str, Path]:
     tables = {
         "summary.md": to_markdown(
             summary, f"Summary — random input, measurements at n = {sn:,}",
-            f"One row per algorithm. expected = growth class on random input; slope = log–log fit of runtime over "
-            f"n ≥ {SLOPE_MIN_N}; T(2m)/T(m) = doubling ratio (≈4 for n², slightly above 2 for n log n); the "
-            f"remaining columns are the median runtime, exact operation counts, tracemalloc peak and recursion "
-            f"depth at n = {sn:,}, the largest size every algorithm ran.") if sn else "",
+            f"One row per algorithm. n = {sn:,} is the largest size every algorithm ran.\n\n"
+            f"- **expected**: growth class on random input\n"
+            f"- **slope**: log–log fit of runtime over n ≥ {SLOPE_MIN_N} (≈2 for n², ≈1.0–1.15 for n log n)\n"
+            f"- **T(2m)/T(m)**: doubling ratio (≈4 for n², slightly above 2 for n log n)\n"
+            f"- **median ms**: median runtime at n = {sn:,}\n"
+            f"- **comparisons / swaps / writes**: exact operation counts at n = {sn:,}\n"
+            f"- **peak KB / max depth**: tracemalloc peak memory and recursion depth at n = {sn:,}") if sn else "",
         "slopes.md": to_markdown(slopes_report_table(slopes), "Log–log slopes of runtime",
                                  f"numpy.polyfit(log n, log t, 1) over measured sizes n ≥ {SLOPE_MIN_N}. "
                                  "In parentheses: the growth class expected for that algorithm on that input "

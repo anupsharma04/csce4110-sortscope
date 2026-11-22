@@ -1,5 +1,7 @@
 """CLI wiring and the analysis pipeline on a tiny benchmark."""
 
+import re
+
 import matplotlib
 import pytest
 
@@ -132,12 +134,12 @@ def test_analysis_end_to_end(tmp_path) -> None:
     assert figs[6] == "fig07_loglog_random.png" and figs[10] == "fig11_loglog_sorted.png"
     captions = (paths["figures"] / "captions.md").read_text(encoding="utf-8")
     assert "expected growth" in captions                       # the proposal's expected-growth lines (M5)
-    summary = (paths["tables"] / "summary.md").read_text(encoding="utf-8")  # the proposal's summary table (M5)
+    summary = re.sub(r" {2,}", " ", (paths["tables"] / "summary.md").read_text(encoding="utf-8"))  # the proposal's summary table (M5)
     assert "n = 1,000" in summary and "T(1000)/T(500)" in summary
     assert all(f"| {label} |" in summary for label in ("Insertion", "Merge", "Quick (first pivot)", "Heap"))
     assert all((paths["figures"] / f.replace(".png", ".txt")).exists() for f in figs)
     assert "Figure 1:" in (paths["figures"] / "captions.md").read_text(encoding="utf-8")
-    slopes = (paths["tables"] / "slopes.md").read_text(encoding="utf-8")
+    slopes = re.sub(r" {2,}", " ", (paths["tables"] / "slopes.md").read_text(encoding="utf-8"))
     assert "| insertion |" in slopes
     doubling = (paths["tables"] / "doubling.md").read_text(encoding="utf-8")
     assert "250→500" in doubling and "500→1000" in doubling
